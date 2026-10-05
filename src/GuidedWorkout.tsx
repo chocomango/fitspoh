@@ -1,6 +1,8 @@
-import { useEffect } from "react";
-import type { Exercise, State, Workout, SetLog } from "./types";
+import { useEffect, useState } from "react";
+import type { Exercise, State, Workout, SetLog, Movement } from "./types";
 import { currentStep, workoutQueue } from "./guided";
+import { postpone, weightIncrement, saveIncrement } from "./mobile.mjs";
+import { useWorkoutWakeLock } from "./useWorkoutWakeLock";
 import {
   toDisplayDistance,
   toStoredDistance,
@@ -16,6 +18,7 @@ type Props = {
   update: (fn: (s: State) => void) => void;
   notify: (message: string) => void;
   finish: () => void;
+  alternative: (movement: Movement) => void;
 };
 const number = (n: number) => Number(n.toFixed(2));
 export function GuidedWorkout({
@@ -25,12 +28,19 @@ export function GuidedWorkout({
   update,
   notify,
   finish,
+  alternative,
 }: Props) {
+  const [busy, setBusy] = useState(false);
+  const [incrementText, setIncrementText] = useState<string | null>(null);
+  const wakeStatus = useWorkoutWakeLock(!!state.settings.keepAwake);
   const w = state.active!;
   const step = currentStep(w);
   const g = w.guided;
   const phase = g?.phase ?? "intro";
   const e = step && lookup(step.movement.exerciseId);
+  useEffect(() => {
+    setIncrementText(null);
+  }, [e?.id, state.settings.weight]);
   const last = workoutQueue(w.movements).find((x) => x.set.id === g?.lastSetId);
   const previous =
     e &&
@@ -109,12 +119,16 @@ export function GuidedWorkout({
     update((s) => {
       const active = s.active!;
       const current = currentStep(active)!;
+      if (active.deferredInputs) delete active.deferredInputs[current.set.id];
       current.set.done = true;
       current.set.skipped = false;
       const next = currentStep({ ...active, guided: undefined });
       if (next) {
         const prior = [...next.movement.sets].reverse().find((s) => s.done);
-        if (prior) {
+        if (
+          prior &&
+          active.deferredInputs?.[next.set.id]?.weight === undefined
+        ) {
           next.set.weight = prior.weight;
           next.set.needsLoad = false;
         }
@@ -163,58 +177,91 @@ export function GuidedWorkout({
     if (key === "weight") value = displayLoad(value, state.settings.weight, e);
     if (key === "distance")
       value = toDisplayDistance(value, state.settings.distance);
+    const rawValues =
+      g?.draft?.setId === step.set.id
+        ? g.draft.values
+        : w.deferredInputs?.[step.set.id];
+    const shown =
+      rawValues?.[key] ??
+      (key === "weight" && step.set.needsLoad ? "" : number(value));
+    const editValue = (text: string) => {
+      const raw = Number(text);
+      if (!Number.isFinite(raw) || raw < 0 || raw > max) return;
+      change((active) => {
+        const target = active.movements
+          .flatMap((m) => m.sets)
+          .find((x) => x.id === step.set.id);
+        if (!target) return;
+        active.guided = {
+          ...active.guided,
+          phase: "entry",
+          draft: {
+            setId: step.set.id,
+            values: { ...rawValues, [key]: text },
+          },
+        };
+        target[key] =
+          key === "weight"
+            ? storedLoad(raw, state.settings.weight, e)
+            : key === "distance"
+              ? toStoredDistance(raw, state.settings.distance)
+              : raw;
+        if (key === "weight") target.needsLoad = text === "";
+        if (key === "effort" && state.settings.effort !== "off")
+          target.effortKind = state.settings.effort;
+      });
+    };
+    const quick = key === "weight" || key === "reps";
+    const increment = key === "weight" && e ? weightIncrement(state, e) : 1;
     return (
-      <label className="field" key={key}>
-        {label}
+      <div className="field" key={key}>
+        <label htmlFor={"guided-" + key}>{label}</label>
         <input
+          id={"guided-" + key}
           type="number"
           inputMode="decimal"
           min="0"
           max={max}
-          step={key === "reps" || key === "seconds" ? "1" : "0.1"}
+          step={key === "reps" || key === "seconds" ? "1" : "any"}
           aria-label={label}
-          value={
-            g?.draft?.setId === step.set.id
-              ? (g.draft.values[key] ?? number(value))
-              : key === "weight" && step.set.needsLoad
-                ? ""
-                : number(value)
-          }
-          onChange={(ev) => {
-            const text = ev.target.value;
-            const raw = Number(text);
-            if (!Number.isFinite(raw) || raw < 0 || raw > max) return;
-            change((active) => {
-              const target = active.movements
-                .flatMap((m) => m.sets)
-                .find((x) => x.id === step.set.id);
-              if (!target) return;
-              active.guided = {
-                ...active.guided,
-                phase: "entry",
-                draft: {
-                  setId: step.set.id,
-                  values: {
-                    ...(active.guided?.draft?.setId === step.set.id
-                      ? active.guided.draft.values
-                      : {}),
-                    [key]: text,
-                  },
-                },
-              };
-              target[key] =
-                key === "weight"
-                  ? storedLoad(raw, state.settings.weight, e)
-                  : key === "distance"
-                    ? toStoredDistance(raw, state.settings.distance)
-                    : raw;
-              if (key === "weight") target.needsLoad = text === "";
-              if (key === "effort" && state.settings.effort !== "off")
-                target.effortKind = state.settings.effort;
-            });
-          }}
+          value={shown}
+          onChange={(ev) => editValue(ev.target.value)}
         />
-      </label>
+        {quick && (
+          <div className="quick-adjustments">
+            {[-1, 1].map((direction) => (
+              <button
+                key={direction}
+                type="button"
+                className="secondary"
+                aria-label={
+                  direction < 0 ? "Decrease " + key : "Increase " + key
+                }
+                disabled={
+                  key === "weight" && (!!step.set.needsLoad || shown === "")
+                }
+                onClick={() =>
+                  editValue(
+                    String(
+                      number(
+                        Math.min(
+                          max,
+                          Math.max(
+                            0,
+                            Number(shown || 0) + direction * increment,
+                          ),
+                        ),
+                      ),
+                    ),
+                  )
+                }
+              >
+                {direction < 0 ? "\u2212" : "+"}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     );
   };
   return (
@@ -233,6 +280,47 @@ export function GuidedWorkout({
           Overview
         </button>
       </div>
+      <details className="workout-settings">
+        <summary>Workout settings</summary>
+        <label className="toggle-row">
+          <input
+            type="checkbox"
+            checked={!!state.settings.keepAwake}
+            onChange={(ev) =>
+              update((s) => {
+                s.settings.keepAwake = ev.target.checked;
+              })
+            }
+          />
+          Keep screen awake
+        </label>
+        {wakeStatus && (
+          <p role="status" className="hint">
+            {wakeStatus}
+          </p>
+        )}
+        {e?.mode === "strength" && (
+          <label className="field">
+            Weight increment ({loadUnit(state.settings.weight, e)})
+            <input
+              aria-label="Weight increment"
+              type="number"
+              inputMode="decimal"
+              min="0.001"
+              max="1000000"
+              step="any"
+              value={incrementText ?? number(weightIncrement(state, e))}
+              onBlur={() => setIncrementText(null)}
+              onChange={(ev) => {
+                setIncrementText(ev.target.value);
+                const value = Number(ev.target.value);
+                if (value > 0 && value <= 1000000)
+                  update((s) => saveIncrement(s, e, value));
+              }}
+            />
+          </label>
+        )}
+      </details>
       {w.notes && (
         <details>
           <summary>Day & recovery notes</summary>
@@ -504,6 +592,58 @@ export function GuidedWorkout({
                 >
                   Start rest
                 </button>
+              )}
+            </>
+          )}
+          {!resting && (
+            <>
+              <button
+                className="secondary busy-toggle"
+                onClick={() => setBusy(!busy)}
+              >
+                Equipment busy
+              </button>
+              {busy && (
+                <div
+                  className="guided-results"
+                  aria-label="Equipment busy options"
+                >
+                  <p>Continue elsewhere, or review a compatible replacement.</p>
+                  {w.movements.some(
+                    (m) =>
+                      m.id !== step.movement.id &&
+                      (!step.movement.superset ||
+                        m.superset !== step.movement.superset) &&
+                      m.sets.some((s) => !s.done && !s.skipped),
+                  ) ? (
+                    <button
+                      className="secondary"
+                      onClick={() => {
+                        update((s) => {
+                          if (s.active && postpone(s.active, step.movement.id))
+                            s.timer = null;
+                        });
+                        setBusy(false);
+                        notify(
+                          "Moved to the end of this workout. Your saved plan is unchanged.",
+                        );
+                      }}
+                    >
+                      Do this later
+                    </button>
+                  ) : (
+                    <p>
+                      No other exercises remain. Find an alternative or use
+                      Overview to adjust the workout.
+                    </p>
+                  )}
+                  <button
+                    className="secondary"
+                    onClick={() => alternative(step.movement)}
+                  >
+                    Find an alternative
+                  </button>
+                </div>
               )}
             </>
           )}

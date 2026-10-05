@@ -141,6 +141,16 @@ const buddyDraft = (d) =>
       ["planId", "dayId", "movementId", "workoutId"].every(
         (key) => d.source[key] === undefined || id(d.source[key]),
       )));
+const inputValues = (values) =>
+  values &&
+  typeof values === "object" &&
+  !Array.isArray(values) &&
+  Object.entries(values).every(
+    ([key, value]) =>
+      ["weight", "reps", "seconds", "distance", "effort"].includes(key) &&
+      str(value) &&
+      value.length <= 40,
+  );
 const workout = (w) =>
   w &&
   id(w.id) &&
@@ -151,6 +161,16 @@ const workout = (w) =>
   str(w.notes) &&
   (w.planId === undefined || id(w.planId)) &&
   (w.dayId === undefined || id(w.dayId)) &&
+  (w.deferredInputs === undefined ||
+    (w.deferredInputs &&
+      typeof w.deferredInputs === "object" &&
+      !Array.isArray(w.deferredInputs) &&
+      Object.entries(w.deferredInputs).every(
+        ([key, values]) =>
+          id(key) &&
+          w.movements.some((m) => m.sets.some((s) => s.id === key)) &&
+          inputValues(values),
+      ))) &&
   (w.guided === undefined ||
     (w.guided &&
       ["intro", "entry", "rest", "between", "summary"].includes(
@@ -286,7 +306,16 @@ export function validateBackup(input, exerciseIds = []) {
     (prefs.theme !== undefined &&
       !["focus", "sumikko"].includes(prefs.theme)) ||
     (prefs.goal !== undefined && !numeric(prefs.goal, 1000)) ||
-    (prefs.lastBackup !== undefined && !date(prefs.lastBackup))
+    (prefs.lastBackup !== undefined && !date(prefs.lastBackup)) ||
+    (prefs.activePlanId !== undefined && !id(prefs.activePlanId)) ||
+    (prefs.keepAwake !== undefined && typeof prefs.keepAwake !== "boolean") ||
+    (prefs.weightIncrements !== undefined &&
+      (!prefs.weightIncrements ||
+        typeof prefs.weightIncrements !== "object" ||
+        Array.isArray(prefs.weightIncrements) ||
+        !Object.entries(prefs.weightIncrements).every(
+          ([key, value]) => id(key) && numeric(value, 1000000) && value > 0,
+        )))
   )
     throw Error("Invalid settings.");
   if (s.timer !== null && !numeric(s.timer, 1e15))

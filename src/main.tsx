@@ -67,6 +67,7 @@ import "./style.css";
 import "./polish.css";
 import "./guided.css";
 import { GuidedWorkout } from "./GuidedWorkout";
+import { activePlan, switchWeightUnit } from "./mobile.mjs";
 import { WorkoutBuddy } from "./WorkoutBuddy";
 import {
   defaultBuddyPreferences,
@@ -186,6 +187,13 @@ function App() {
       }
       const next = structuredClone(old);
       fn(next);
+      if (next.active?.deferredInputs) {
+        const sets = new Set(
+          next.active.movements.flatMap((m) => m.sets.map((s) => s.id)),
+        );
+        for (const key of Object.keys(next.active.deferredInputs))
+          if (!sets.has(key)) delete next.active.deferredInputs[key];
+      }
       return next;
     });
   useEffect(() => {
@@ -433,6 +441,7 @@ function App() {
     setSelectedDay(null);
     go("plans");
   };
+  const homePlan = activePlan(state);
   const currentPlan = state.plans.find((p) => p.id === selectedPlan),
     currentDay = currentPlan?.days.find((d) => d.id === selectedDay);
   const currentWorkout = historyEdit
@@ -443,7 +452,18 @@ function App() {
       const w = historyEdit
         ? s.workouts.find((w) => w.id === historyEdit)
         : s.active;
-      if (w) fn(w);
+      if (w) {
+        const before = new Map(
+          w.movements.flatMap((m) =>
+            m.sets.map((t) => [t.id, JSON.stringify(t)] as const),
+          ),
+        );
+        fn(w);
+        for (const t of w.movements.flatMap((m) => m.sets)) {
+          if (before.get(t.id) !== JSON.stringify(t) && w.deferredInputs)
+            delete w.deferredInputs[t.id];
+        }
+      }
     }, undo);
   const modifyDay = (fn: (d: Day) => void) =>
     update((s) => {
@@ -1781,17 +1801,6 @@ function App() {
                 }
               </p>
             </div>
-            {tab === "dashboard" && (
-              <button
-                className="primary"
-                onClick={() =>
-                  state.active ? go("workout") : launch("My workout")
-                }
-              >
-                <Plus size={18} />
-                {state.active ? "Resume workout" : "Start workout"}
-              </button>
-            )}
             {tab === "body" && (
               <button className="primary" onClick={() => startBody(null)}>
                 <Plus size={18} />
@@ -1816,6 +1825,135 @@ function App() {
           </div>
           {tab === "dashboard" && (
             <>
+              <section className="panel next-workout">
+                <div className="section-title">
+                  <h2>Up next</h2>
+                  <a href="#plans">
+                    View plans <ArrowRight size={14} />
+                  </a>
+                </div>
+                {state.plans.some((p) => p.days.length > 0) && (
+                  <label className="field">
+                    Active plan
+                    <select
+                      aria-label="Active plan"
+                      value={homePlan?.id ?? ""}
+                      onChange={(ev) =>
+                        update((s) => {
+                          s.settings.activePlanId = ev.target.value;
+                        })
+                      }
+                    >
+                      {state.plans
+                        .filter((p) => p.days.length)
+                        .map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                )}
+                {state.active ? (
+                  <>
+                    <span className="tag green">IN PROGRESS</span>
+                    <h3 className="hero-title">{state.active.name}</h3>
+                    <p>
+                      {completeCount(state.active)} completed sets · started{" "}
+                      {dateLabel(state.active.started)}
+                    </p>
+                    <button className="primary" onClick={() => go("workout")}>
+                      Resume workout <ArrowRight size={16} />
+                    </button>
+                  </>
+                ) : homePlan ? (
+                  (() => {
+                    const p = homePlan!;
+                    const d = p.days[p.next % p.days.length];
+                    return (
+                      <>
+                        <span className="tag green">{p.name}</span>
+                        <h3 className="hero-title">{d.name}</h3>
+                        <p>
+                          {d.movements.length} exercises ·{" "}
+                          {d.movements.reduce((n, m) => n + m.sets.length, 0)}{" "}
+                          planned sets
+                        </p>
+                        {d.notes && (
+                          <details>
+                            <summary>Workout notes</summary>
+                            <p>{d.notes}</p>
+                          </details>
+                        )}
+                        {p.notes && (
+                          <details>
+                            <summary>Plan & recovery notes</summary>
+                            <p>{p.notes}</p>
+                          </details>
+                        )}
+                        <div className="next-exercises">
+                          {d.movements.slice(0, 3).map((m) => (
+                            <span key={m.id}>
+                              {exercise(m.exerciseId)?.name}
+                            </span>
+                          ))}
+                        </div>
+                        <button
+                          className="primary"
+                          disabled={!d.restDay && !d.movements.length}
+                          onClick={() =>
+                            d.restDay
+                              ? takeRestDay(p, d)
+                              : launch(d.name, d.movements, p.id, d.id)
+                          }
+                        >
+                          {d.restDay ? "Rest / activity" : "Start this workout"}{" "}
+                          <ArrowRight size={16} />
+                        </button>
+                        {!d.restDay && (
+                          <button
+                            className="secondary"
+                            onClick={() =>
+                              notify(
+                                "Take extra rest today. Your next planned workout stays the same.",
+                              )
+                            }
+                          >
+                            Take extra rest
+                          </button>
+                        )}
+                      </>
+                    );
+                  })()
+                ) : (
+                  <>
+                    <span className="tag green">A FRESH START</span>
+                    <h3 className="hero-title">Make room for progress.</h3>
+                    <p>
+                      Create a plan with the exercises you enjoy. Your next
+                      workout will be ready when you are.
+                    </p>
+                    <button className="primary" onClick={() => go("plans")}>
+                      Build my first plan <ArrowRight size={16} />
+                    </button>
+                    <div className="decorative-lines">
+                      <i />
+                      <i />
+                      <i />
+                      <i />
+                      <i />
+                    </div>
+                  </>
+                )}
+                {!state.active && (
+                  <button
+                    className="secondary"
+                    onClick={() => launch("My workout")}
+                  >
+                    Start an empty workout
+                  </button>
+                )}
+              </section>
               {cozy && (
                 <section className="cozy-welcome">
                   <div>
@@ -1873,102 +2011,6 @@ function App() {
                 />
               </div>
               <div className="dashboard-grid">
-                <section className="panel next-workout">
-                  <div className="section-title">
-                    <h2>Up next</h2>
-                    <a href="#plans">
-                      View plans <ArrowRight size={14} />
-                    </a>
-                  </div>
-                  {state.active ? (
-                    <>
-                      <span className="tag green">IN PROGRESS</span>
-                      <h3 className="hero-title">{state.active.name}</h3>
-                      <p>
-                        {completeCount(state.active)} completed sets · started{" "}
-                        {dateLabel(state.active.started)}
-                      </p>
-                      <button className="primary" onClick={() => go("workout")}>
-                        Continue workout <ArrowRight size={16} />
-                      </button>
-                    </>
-                  ) : state.plans.some((p) => p.days.length) ? (
-                    (() => {
-                      const p = state.plans.find((p) => p.days.length)!;
-                      const d = p.days[p.next % p.days.length];
-                      return (
-                        <>
-                          <span className="tag green">{p.name}</span>
-                          <h3 className="hero-title">{d.name}</h3>
-                          <p>
-                            {d.movements.length} exercises ·{" "}
-                            {d.movements.reduce((n, m) => n + m.sets.length, 0)}{" "}
-                            planned sets
-                          </p>
-                          {d.notes && <p>{d.notes}</p>}
-                          {p.notes && (
-                            <details>
-                              <summary>Plan & recovery notes</summary>
-                              <p>{p.notes}</p>
-                            </details>
-                          )}
-                          <div className="next-exercises">
-                            {d.movements.slice(0, 3).map((m) => (
-                              <span key={m.id}>
-                                {exercise(m.exerciseId)?.name}
-                              </span>
-                            ))}
-                          </div>
-                          <button
-                            className="primary"
-                            disabled={!d.restDay && !d.movements.length}
-                            onClick={() =>
-                              d.restDay
-                                ? takeRestDay(p, d)
-                                : launch(d.name, d.movements, p.id, d.id)
-                            }
-                          >
-                            {d.restDay
-                              ? "Rest / activity"
-                              : "Start this workout"}{" "}
-                            <ArrowRight size={16} />
-                          </button>
-                          {!d.restDay && (
-                            <button
-                              className="secondary"
-                              onClick={() =>
-                                notify(
-                                  "Take extra rest today. Your next planned workout stays the same.",
-                                )
-                              }
-                            >
-                              Take extra rest
-                            </button>
-                          )}
-                        </>
-                      );
-                    })()
-                  ) : (
-                    <>
-                      <span className="tag green">A FRESH START</span>
-                      <h3 className="hero-title">Make room for progress.</h3>
-                      <p>
-                        Create a plan with the exercises you enjoy. Your next
-                        workout will be ready when you are.
-                      </p>
-                      <button className="primary" onClick={() => go("plans")}>
-                        Build my first plan <ArrowRight size={16} />
-                      </button>
-                      <div className="decorative-lines">
-                        <i />
-                        <i />
-                        <i />
-                        <i />
-                        <i />
-                      </div>
-                    </>
-                  )}
-                </section>
                 <section className="panel">
                   <div className="section-title">
                     <h2>Bodyweight trend</h2>
@@ -2167,6 +2209,12 @@ function App() {
                       {state.plans.map((p) => (
                         <button
                           key={p.id}
+                          aria-label={`${p.name} ${p.days.length} days`}
+                          aria-describedby={
+                            homePlan?.id === p.id
+                              ? "active-plan-marker"
+                              : undefined
+                          }
                           className={`chip ${selectedPlan === p.id ? "selected" : ""}`}
                           onClick={() => {
                             setSelectedPlan(p.id);
@@ -2175,6 +2223,11 @@ function App() {
                         >
                           {p.name}
                           <span>{p.days.length} days</span>
+                          {homePlan?.id === p.id && (
+                            <span id="active-plan-marker" className="tag green">
+                              Active
+                            </span>
+                          )}
                         </button>
                       ))}
                     </div>
@@ -2185,6 +2238,22 @@ function App() {
                         <>
                           <div className="section-title">
                             <h2>{currentPlan.name}</h2>
+                            {homePlan?.id === currentPlan.id ? (
+                              <span className="tag green">Active plan</span>
+                            ) : (
+                              <button
+                                className="secondary"
+                                disabled={!currentPlan.days.length}
+                                onClick={() => {
+                                  update((s) => {
+                                    s.settings.activePlanId = currentPlan.id;
+                                  });
+                                  notify("Active plan updated.");
+                                }}
+                              >
+                                Use this plan
+                              </button>
+                            )}
                             <div className="actions">
                               <button
                                 className="ghost"
@@ -2523,6 +2592,14 @@ function App() {
                       update={update}
                       notify={notify}
                       finish={finishWorkout}
+                      alternative={(movement) =>
+                        openBuddy({
+                          mode: "suggest",
+                          exerciseId: movement.exerciseId,
+                          sourceMovementId: movement.id,
+                          sourceScope: "active",
+                        })
+                      }
                     />
                   ) : (
                     <>
@@ -3312,10 +3389,11 @@ function App() {
                 <label className="field">
                   Weight unit
                   <select
+                    aria-label="Weight unit"
                     value={state.settings.weight}
                     onChange={(e) =>
                       update((s) => {
-                        s.settings.weight = e.target.value as "kg" | "lb";
+                        switchWeightUnit(s, e.target.value, exercise);
                       })
                     }
                   >

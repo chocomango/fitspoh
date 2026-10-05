@@ -8,6 +8,16 @@ The phone navigation has five tabs: Home, Plans, Train, Body, and More. Exercise
 
 Toggle **Sumikko Gurashi theme** in the top bar, or choose an appearance under More. The soft theme includes cream backgrounds, pastel cards, and original SVG character illustrations. Theme selection is saved locally, included in backups, and defaults to the original dark Focus theme for existing records.
 
+## Easier mobile workouts
+
+Home puts the next planned workout or unfinished session first. Choose an **Active plan** on Home, or **Use this plan** in Plans; Buddy saves do not switch it. **Start an empty workout** remains a separate secondary action. Older backups use the first nonempty plan, with the same fallback if the selected plan is removed or emptied.
+
+During guided strength sets, large weight and rep buttons supplement direct typing. **Workout settings** lets you set an increment for each exercise (defaults: 2.5 kg, 5 lb, or 1 stack setting). Saved physical increments convert across units; stack settings remain unitless. Unknown loads require explicit entry before the buttons work.
+
+**Equipment busy** offers **Do this later** or Buddy alternatives. Postponing moves the exercise or whole circuit to the end of this session, retaining completed sets and unfinished entry. If no other exercises remain, use alternatives or Overview. Session changes do not automatically update saved plans.
+
+The optional **Keep screen awake** setting defaults off. Supported browsers keep the screen awake while the guided workout is visible, release it when leaving, and request it again on return. Browser refusal or battery restrictions do not interrupt logging. New preferences and postponed inputs are included in backups; older version-1 backups remain compatible.
+
 ## Run locally
 
 Requires Node.js 22 or later.

@@ -70,6 +70,12 @@ export type Workout = {
   notes: string;
   planId?: string;
   dayId?: string;
+  deferredInputs?: Record<
+    string,
+    Partial<
+      Record<"weight" | "reps" | "seconds" | "distance" | "effort", string>
+    >
+  >;
   guided?: {
     setId?: string;
     phase: "intro" | "entry" | "rest" | "between" | "summary";
@@ -148,6 +154,9 @@ export type State = {
     theme?: "focus" | "sumikko";
     goal?: number;
     lastBackup?: string;
+    activePlanId?: string;
+    keepAwake?: boolean;
+    weightIncrements?: Record<string, number>;
   };
   timer: number | null;
   buddy?: { preferences: BuddyPreferences; draft?: BuddyDraft };

@@ -85,6 +85,41 @@
 .guided-workout button {
   min-height: 44px;
 }
+.quick-adjustments {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.quick-adjustments button {
+  flex: 1;
+  min-width: 44px;
+  font-size: 24px;
+}
+.workout-settings input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+}
+.workout-settings .toggle-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-height: 44px;
+}
+.guided-results button,
+.busy-toggle {
+  margin: 8px 8px 8px 0;
+}
+.home-page > .next-workout {
+  margin-bottom: 20px;
+}
+@media (max-width: 900px) {
+  .home-page > .next-workout {
+    order: 1;
+  }
+  .home-page > .cozy-welcome {
+    order: 2;
+  }
+}
 @media (max-width: 600px) {
   .guided-workout {
     padding: 16px;
