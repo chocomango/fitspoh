@@ -1,4 +1,10 @@
 export const uid = () => globalThis.crypto.randomUUID();
+export function csvCell(value) {
+  const text = String(value ?? "");
+  const safe =
+    typeof value === "string" && /^\s*[=+@-]/.test(text) ? "'" + text : text;
+  return '"' + safe.replaceAll('"', '""') + '"';
+}
 export const toDisplayWeight = (n, unit) =>
   unit === "lb" ? n * 2.2046226218 : n;
 export const toStoredWeight = (n, unit) =>

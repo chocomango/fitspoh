@@ -31,6 +31,14 @@ For the production preview, run `npm run build` then `npm run preview` and open 
 
 ## Your first workout
 
+On a fresh journal, Home offers **Make a routine with Buddy**, manual plan creation, and gym-equipment setup. Configure only equipment you have confirmed, review Buddy's draft, save it, then start the workout from Home. Empty sessions provide **Add first exercise** and **Cancel empty workout** without creating history.
+
+Guided sessions show completed-set progress, reject incomplete actual results, provide a brief **Undo completed set** action, and compare working reps at the same load with the last completed session. Overview remains available for later corrections.
+
+Journal saves use atomic transactions and revision checks. A second tab cannot silently overwrite newer records; the recovery banner offers a local export and reload. Failed writes can be retried, and backup restore reports success only after committing. Keep regular downloaded backups.
+
+Quality checks: `npm test`, `npm run test:browser`, `npm run typecheck`, `npm run lint`, and `npm run build`. See [PRODUCT_REVIEW.md](PRODUCT_REVIEW.md) for review findings and practical limitations.
+
 Under **Plans**, tap **Add my prebuilt plan** for the personal Upper / Lower / Rest / Push / Pull / Legs / Rest sequence. It includes the supplied starting weights and progression/recovery notes without creating historical workout records. Adding it again opens the same editable plan. Rest days advance only when acknowledged; **Take extra rest** leaves the next workout unchanged. Optional exercises start skipped and can be included through **Overview → Guide this exercise**. Unknown loads remain zero with an explicit note to choose a load; placeholder set targets are labeled in the notes.
 
 Trap-bar loads are stored per side, lateral-machine settings stay unitless even when switching to pounds, and linear-leg-press loads are plates only (the 53 kg sled is in the notes). These conventions appear in the log, guides, records, and CSV; they are excluded from aggregate total-load volume. Historical bests and the next hip-thrust target remain notes, with no automatic weight increases.

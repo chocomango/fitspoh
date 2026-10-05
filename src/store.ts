@@ -77,12 +77,65 @@ const db = () =>
       db.createObjectStore("journal");
     },
   }));
-export async function readState(): Promise<State> {
-  return (
-    (await (await db()).get("journal", "state")) ??
-    structuredClone(initialState)
-  );
+export const journalClient = crypto.randomUUID();
+export class StorageConflict extends Error {
+  constructor() {
+    super(
+      "Another tab updated this journal. Reload before making more changes.",
+    );
+  }
 }
-export async function writeState(state: State) {
-  await (await db()).put("journal", state, "state");
+export async function readJournal() {
+  const tx = (await db()).transaction("journal", "readonly");
+  const [stored, savedRevision] = await Promise.all([
+    tx.store.get("state"),
+    tx.store.get("revision"),
+    tx.done,
+  ]);
+  const revision = savedRevision ?? 0;
+  if (!Number.isSafeInteger(revision) || revision < 0)
+    throw Error("Invalid journal revision.");
+  return {
+    state: (stored ?? structuredClone(initialState)) as State,
+    revision: revision as number,
+    exists: stored !== undefined,
+  };
+}
+/** A null revision is reserved for an explicitly reviewed backup restore. */
+export async function writeState(
+  state: State,
+  expectedRevision: number | null,
+) {
+  const tx = (await db()).transaction("journal", "readwrite");
+  try {
+    const stored = (await tx.store.get("revision")) ?? 0;
+    if (expectedRevision !== null && stored !== expectedRevision) {
+      tx.abort();
+      await tx.done.catch(() => {});
+      throw new StorageConflict();
+    }
+    const revision =
+      (Number.isSafeInteger(stored) && stored >= 0 ? stored : 0) + 1;
+    await tx.store.put(state, "state");
+    await tx.store.put(revision, "revision");
+    await tx.done;
+    if (typeof BroadcastChannel !== "undefined") {
+      try {
+        const channel = new BroadcastChannel("fitspoh-journal");
+        channel.postMessage({ revision, writer: journalClient });
+        channel.close();
+      } catch {
+        /* Optimistic revision checks still protect writes without cross-tab notifications. */
+      }
+    }
+    return revision;
+  } catch (error) {
+    try {
+      tx.abort();
+    } catch {
+      /* The failed transaction may already be closed. */
+    }
+    await tx.done.catch(() => {});
+    throw error;
+  }
 }

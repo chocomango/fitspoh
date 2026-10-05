@@ -1,4 +1,10 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useMemo,
+  useCallback,
+} from "react";
 import { createRoot } from "react-dom/client";
 import {
   Activity,
@@ -43,7 +49,13 @@ import type {
   BuddyDraft,
   BuddyPreferences,
 } from "./types";
-import { initialState, readState, writeState } from "./store";
+import {
+  initialState,
+  readJournal,
+  writeState,
+  StorageConflict,
+  journalClient,
+} from "./store";
 import {
   uid,
   available,
@@ -59,14 +71,16 @@ import {
   toDisplayDistance,
   toStoredDistance,
   validateBackup,
+  csvCell,
 } from "./domain.mjs";
-import { Chart, Empty } from "./components";
+import { Chart, Empty, ExercisePhoto } from "./components";
 import { CornerFriend, CornerFriends } from "./CornerFriends";
 import exerciseData from "./data/exercises.json";
 import "./style.css";
 import "./polish.css";
 import "./guided.css";
 import { GuidedWorkout } from "./GuidedWorkout";
+import { setIssue } from "./workout-feedback.mjs";
 import { activePlan, switchWeightUnit } from "./mobile.mjs";
 import { WorkoutBuddy } from "./WorkoutBuddy";
 import {
@@ -101,6 +115,10 @@ const dateLabel = (s: string) =>
     month: "short",
     year: "numeric",
   });
+const routeTab = () =>
+  NAV.some(([key]) => key === location.hash.slice(1))
+    ? location.hash.slice(1)
+    : "dashboard";
 const setTemplate = (): SetLog => ({
   id: uid(),
   weight: 0,
@@ -114,7 +132,11 @@ const setTemplate = (): SetLog => ({
 const makeMovement = (e: Exercise): Movement => ({
   id: uid(),
   exerciseId: e.id,
-  sets: Array.from({ length: e.mode === "cardio" ? 1 : 3 }, setTemplate),
+  sets: Array.from({ length: e.mode === "cardio" ? 1 : 3 }, () => ({
+    ...setTemplate(),
+    needsLoad:
+      e.mode === "strength" && e.required.some((id) => id !== "body only"),
+  })),
   rest: 90,
   notes: "",
   superset: "",
@@ -133,8 +155,10 @@ function App() {
   const [state, setState] = useState<State>(initialState),
     [ready, setReady] = useState(false),
     [storageSafe, setStorageSafe] = useState(true),
+    [storageConflict, setStorageConflict] = useState(false),
+    [saveFailed, setSaveFailed] = useState(false),
     [saveStatus, setSaveStatus] = useState("Loading…"),
-    [tab, setTab] = useState(location.hash.slice(1) || "dashboard");
+    [tab, setTab] = useState(routeTab());
   const [modal, setModal] = useState<React.ReactNode>(null),
     [notice, setNotice] = useState(""),
     [query, setQuery] = useState(""),
@@ -151,34 +175,53 @@ function App() {
     [historyEdit, setHistoryEdit] = useState<string | null>(null),
     [bodyMetric, setBodyMetric] = useState("weight"),
     [now, setNow] = useState(Date.now()),
-    [offline, setOffline] = useState(!navigator.onLine);
+    [offline, setOffline] = useState(!navigator.onLine),
+    [equipmentQuery, setEquipmentQuery] = useState("");
   const [bodyEdit, setBodyEdit] = useState<BodyEntry | null | undefined>(
       undefined,
     ),
     [bodyForm, setBodyForm] = useState<Record<string, string>>({}),
     [historyMonth, setHistoryMonth] = useState(today().slice(0, 7));
   const [buddySetup, setBuddySetup] = useState(false);
+  const [guideDownload, setGuideDownload] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null),
     saveQueue = useRef(Promise.resolve()),
     undoRef = useRef<Workout | null>(null),
     stateRef = useRef(state),
     timerAnnounced = useRef<number | null>(null),
     backupState = useRef<State | null>(null),
-    saveRevision = useRef(0);
+    saveRevision = useRef(0),
+    journalRevision = useRef(0),
+    blockedWrites = useRef(false),
+    lastSavedState = useRef<State | null>(null);
   stateRef.current = state;
-  const exercises = [...library, ...state.custom];
+  const exercises = useMemo(
+    () => [...library, ...state.custom],
+    [state.custom],
+  );
+  const exerciseMap = useMemo(
+    () => new Map(exercises.map((e) => [e.id, e] as const)),
+    [exercises],
+  );
   const cozy = state.settings.theme === "sumikko";
   const toggleTheme = () =>
     update((s) => {
       s.settings.theme = s.settings.theme === "sumikko" ? "focus" : "sumikko";
     });
-  const exercise = (id: string) => exercises.find((e) => e.id === id);
+  const exercise = useCallback(
+    (id: string) => exerciseMap.get(id),
+    [exerciseMap],
+  );
   const recordedVolume = (w: Workout) => volume(w, exercise);
   const notify = (text: string) => {
     setNotice(text);
   };
   const update = (fn: (s: State) => void, undo = false) =>
     setState((old) => {
+      if (blockedWrites.current || !storageSafe) return old;
       if (undo) {
         const w = historyEdit
           ? old.workouts.find((w) => w.id === historyEdit)
@@ -197,13 +240,16 @@ function App() {
       return next;
     });
   useEffect(() => {
-    readState()
-      .then((s) => {
+    readJournal()
+      .then(({ state: s, revision, exists }) => {
         validateBackup(
           s,
           library.map((e) => e.id),
         );
+        journalRevision.current = revision;
+        lastSavedState.current = exists ? s : null;
         setState(s);
+        setSaveStatus(exists ? "Saved on this device" : "Saving…");
         setReady(true);
       })
       .catch(() => {
@@ -213,7 +259,7 @@ function App() {
         );
         setReady(true);
       });
-    const onHash = () => setTab(location.hash.slice(1) || "dashboard");
+    const onHash = () => setTab(routeTab());
     const online = () => setOffline(!navigator.onLine);
     window.addEventListener("hashchange", onHash);
     window.addEventListener("online", online);
@@ -225,20 +271,74 @@ function App() {
     };
   }, []);
   useEffect(() => {
-    if (!ready || !storageSafe) return;
+    if (
+      !ready ||
+      !storageSafe ||
+      blockedWrites.current ||
+      state === lastSavedState.current
+    )
+      return;
     const revision = ++saveRevision.current;
-    setSaveStatus("Saving…");
+    setSaveStatus("Saving\u2026");
     saveQueue.current = saveQueue.current
       .catch(() => {})
-      .then(() => writeState(state))
-      .then(() => {
-        if (revision === saveRevision.current)
+      .then(async () => {
+        if (blockedWrites.current) return;
+        journalRevision.current = await writeState(
+          state,
+          journalRevision.current,
+        );
+        lastSavedState.current = state;
+        if (revision === saveRevision.current) {
           setSaveStatus("Saved on this device");
+          setSaveFailed(false);
+        }
       })
-      .catch(() =>
-        setSaveStatus("Save failed — export a backup before closing."),
-      );
+      .catch((error) => {
+        if (error instanceof StorageConflict) {
+          blockedWrites.current = true;
+          setStorageConflict(true);
+          setSaveStatus(
+            "Another tab updated this journal. Reload to continue.",
+          );
+        } else {
+          setSaveStatus("Save failed \u2014 export a backup before closing.");
+          setSaveFailed(true);
+        }
+      });
   }, [state, ready, storageSafe]);
+  useEffect(() => {
+    if (typeof BroadcastChannel === "undefined") return;
+    let channel: BroadcastChannel;
+    try {
+      channel = new BroadcastChannel("fitspoh-journal");
+    } catch {
+      return;
+    }
+    channel.onmessage = (event) => {
+      if (
+        event.data?.writer !== journalClient &&
+        Number.isSafeInteger(event.data?.revision) &&
+        event.data.revision > journalRevision.current
+      ) {
+        blockedWrites.current = true;
+        setStorageConflict(true);
+        setSaveStatus("Another tab updated this journal. Reload to continue.");
+      }
+    };
+    return () => channel.close();
+  }, []);
+  useEffect(() => {
+    if (!ready || !storageSafe) return;
+    const beforeLeave = (event: BeforeUnloadEvent) => {
+      if (stateRef.current !== lastSavedState.current) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", beforeLeave);
+    return () => window.removeEventListener("beforeunload", beforeLeave);
+  }, [ready, storageSafe]);
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
@@ -276,14 +376,33 @@ function App() {
     const previouslyFocused = document.activeElement as HTMLElement | null;
     const layers = document.querySelectorAll<HTMLElement>(".modal-backdrop");
     const layer = layers[layers.length - 1];
+    const priorInert = Array.from(layers).map((e) => e.inert);
+    layers.forEach((e, i) => {
+      e.inert = storageConflict || i < layers.length - 1;
+    });
+    const dialog = layer?.firstElementChild;
+    const heading = dialog?.querySelector("h2");
+    if (dialog && heading) {
+      heading.id = "fitspoh-dialog-title-" + layers.length;
+      dialog.setAttribute("role", "dialog");
+      dialog.setAttribute("aria-modal", "true");
+      dialog.setAttribute("aria-labelledby", heading.id);
+    }
     const focusable = () =>
       Array.from(
         layer?.querySelectorAll<HTMLElement>(
           'button:not(:disabled), input:not([type="hidden"]), select, textarea, a[href]',
         ) ?? [],
       ).filter((e) => e.offsetParent !== null);
-    const frame = requestAnimationFrame(() => focusable()[0]?.focus());
+    const frame = requestAnimationFrame(() =>
+      storageConflict
+        ? document
+            .querySelector<HTMLButtonElement>(".recovery-banner button")
+            ?.focus()
+        : focusable()[0]?.focus(),
+    );
     const keydown = (event: KeyboardEvent) => {
+      if (storageConflict) return;
       if (event.key === "Escape") {
         event.preventDefault();
         if (detail) setDetail(null);
@@ -308,12 +427,15 @@ function App() {
     document.body.style.overflow = "hidden";
     document.addEventListener("keydown", keydown);
     return () => {
+      layers.forEach((e, i) => {
+        e.inert = priorInert[i];
+      });
       cancelAnimationFrame(frame);
       document.removeEventListener("keydown", keydown);
       document.body.style.overflow = oldOverflow;
       if (previouslyFocused?.isConnected) previouslyFocused.focus();
     };
-  }, [modal, picker, detail, bodyEdit]);
+  }, [modal, picker, detail, bodyEdit, storageConflict]);
   const go = (name: string, historical = false) => {
     if (name === "workout" && !historical) setHistoryEdit(null);
     location.hash = name;
@@ -403,7 +525,7 @@ function App() {
           "",
         planId,
         dayId,
-        guided: { phase: "intro", overview: !movements.length },
+        guided: { phase: "intro", overview: false },
       };
       s.timer = null;
     });
@@ -567,16 +689,34 @@ function App() {
             </button>
             <button
               className="danger"
-              onClick={() => {
-                if (backupState.current) {
-                  setState(backupState.current);
+              onClick={async () => {
+                if (!backupState.current) return;
+                const restored = backupState.current;
+                setSaveStatus("Restoring backup\u2026");
+                try {
+                  await saveQueue.current.catch(() => {});
+                  journalRevision.current = await writeState(restored, null);
+                  lastSavedState.current = restored;
+                  blockedWrites.current = false;
                   setStorageSafe(true);
+                  setStorageConflict(false);
+                  setSaveFailed(false);
+                  setState(restored);
+                  setSaveStatus("Saved on this device");
                   undoRef.current = null;
                   setModal(null);
                   setSelectedPlan(null);
                   setSelectedDay(null);
                   setHistoryEdit(null);
                   notify("Backup restored.");
+                } catch {
+                  setSaveFailed(true);
+                  setSaveStatus(
+                    "Restore failed. Your previous journal has not been replaced.",
+                  );
+                  notify(
+                    "Could not save the restored backup. Export your current data and try again.",
+                  );
                 }
               }}
             >
@@ -626,7 +766,10 @@ function App() {
   const weekStart = new Date();
   weekStart.setHours(0, 0, 0, 0);
   weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
-  const weekly = state.workouts.filter((w) => new Date(w.started) >= weekStart);
+  const weekly = useMemo(
+    () => state.workouts.filter((w) => new Date(w.started) >= weekStart),
+    [state.workouts, weekStart.getTime()],
+  );
   const weeklyMuscles: Record<string, number> = {};
   weekly.forEach((w) =>
     w.movements.forEach((m) =>
@@ -643,24 +786,30 @@ function App() {
   const lastWeight = sortedBody
     .filter((b) => b.weight !== undefined)
     .at(-1)?.weight;
-  const personalRecords = exercises
-    .flatMap((e) => {
-      if (e.mode !== "strength" || /assisted/i.test(e.name)) return [];
-      const sets = state.workouts.flatMap((w) =>
-        w.movements
-          .filter((m) => m.exerciseId === e.id)
-          .flatMap((m) =>
-            m.sets.filter((s) => s.done && s.type !== "warmup" && s.reps > 0),
-          ),
-      );
-      if (!sets.length) return [];
-      const bestLoad = Math.max(...sets.map((s) => s.weight));
-      const bestReps = Math.max(
-        ...sets.filter((s) => s.weight === bestLoad).map((s) => s.reps),
-      );
-      return [{ exercise: e, weight: bestLoad, reps: bestReps }];
-    })
-    .sort((a, b) => a.exercise.name.localeCompare(b.exercise.name));
+  const personalRecords = useMemo(
+    () =>
+      exercises
+        .flatMap((e) => {
+          if (e.mode !== "strength" || /assisted/i.test(e.name)) return [];
+          const sets = state.workouts.flatMap((w) =>
+            w.movements
+              .filter((m) => m.exerciseId === e.id)
+              .flatMap((m) =>
+                m.sets.filter(
+                  (s) => s.done && s.type !== "warmup" && s.reps > 0,
+                ),
+              ),
+          );
+          if (!sets.length) return [];
+          const bestLoad = Math.max(...sets.map((s) => s.weight));
+          const bestReps = Math.max(
+            ...sets.filter((s) => s.weight === bestLoad).map((s) => s.reps),
+          );
+          return [{ exercise: e, weight: bestLoad, reps: bestReps }];
+        })
+        .sort((a, b) => a.exercise.name.localeCompare(b.exercise.name)),
+    [exercises, state.workouts],
+  );
   const visible = exercises.filter(
     (e) =>
       (!query ||
@@ -1150,22 +1299,33 @@ function App() {
                         label={`Set ${i + 1} reps`}
                         value={s.reps}
                         step={1}
-                        onChange={(v) =>
+                        onChange={(v) => {
+                          if (s.done && Math.round(v) < 1)
+                            notify(
+                              "Set marked unfinished. Enter valid reps and complete it again.",
+                            );
                           edit((ms) => {
                             ms[index].sets[i].reps = Math.round(v);
-                          })
-                        }
+                            if (Math.round(v) < 1)
+                              ms[index].sets[i].done = false;
+                          });
+                        }}
                       />
                     </>
                   ) : (
                     <>
                       <DurationInput
                         seconds={s.seconds}
-                        onChange={(v) =>
+                        onChange={(v) => {
+                          if (s.done && v <= 0)
+                            notify(
+                              "Set marked unfinished. Enter a positive duration and complete it again.",
+                            );
                           edit((ms) => {
                             ms[index].sets[i].seconds = v;
-                          })
-                        }
+                            if (v <= 0) ms[index].sets[i].done = false;
+                          });
+                        }}
                       />
                       {e.mode === "cardio" ? (
                         <NumberInput
@@ -1230,10 +1390,8 @@ function App() {
                           ms[index].sets.splice(i, 1);
                         });
                       else {
-                        if (s.needsLoad && !s.done) {
-                          notify(
-                            "Choose a load for this set, or explicitly enter 0 for no added load.",
-                          );
+                        if (!s.done && setIssue(s, e)) {
+                          notify(setIssue(s, e));
                           return;
                         }
                         edit((ms) => {
@@ -1421,6 +1579,17 @@ function App() {
       notify("Complete at least one set before finishing.");
       return;
     }
+    const invalid = state.active.movements.find((m) =>
+      m.sets.some((s) => s.done && setIssue(s, exercise(m.exerciseId))),
+    );
+    if (invalid) {
+      notify(
+        "Correct the completed results for " +
+          exercise(invalid.exerciseId)?.name +
+          " in Overview before finishing.",
+      );
+      return;
+    }
     confirm(
       "Finish this workout?",
       "Completed sets will be saved to history. Uncompleted sets stay visible but do not count towards progress.",
@@ -1440,7 +1609,7 @@ function App() {
           s.timer = null;
         });
         go("history");
-        notify("Workout saved. Nice work showing up.");
+        notify("Workout finished. Nice work showing up.");
       },
     );
   };
@@ -1602,7 +1771,7 @@ function App() {
     );
   };
   const csvExport = () => {
-    const escape = (v: unknown) => `"${String(v ?? "").replaceAll('"', '""')}"`;
+    const escape = csvCell;
     const rows = [
       [
         "Date",
@@ -1681,9 +1850,78 @@ function App() {
     );
   return (
     <div className="app-shell">
+      {(storageConflict || !storageSafe || saveFailed) && (
+        <section className="recovery-banner" role="alert">
+          <strong>
+            {storageConflict
+              ? "This journal changed in another tab"
+              : !storageSafe
+                ? "Your saved journal could not be opened"
+                : "Your latest changes are not saved"}
+          </strong>
+          <p>
+            {storageConflict
+              ? "Export this tab's copy if you need it, then reload to use the latest saved journal."
+              : !storageSafe
+                ? "Existing data has been left untouched. Reload, or restore a validated backup to recover."
+                : "Keep this tab open. Retry saving or export a backup before leaving."}
+          </p>
+          <div className="actions">
+            {storageSafe && (
+              <button className="secondary" onClick={exportBackup}>
+                Export this tab's data
+              </button>
+            )}
+            {saveFailed && storageSafe && !storageConflict && (
+              <button
+                className="primary"
+                onClick={() => setState(structuredClone(stateRef.current))}
+              >
+                Retry saving
+              </button>
+            )}
+            <button
+              className="secondary"
+              onClick={() => {
+                lastSavedState.current = stateRef.current;
+                location.reload();
+              }}
+            >
+              Reload saved journal
+            </button>
+            {!storageSafe && (
+              <button
+                className="primary"
+                onClick={() => fileRef.current?.click()}
+              >
+                Restore backup
+              </button>
+            )}
+          </div>
+        </section>
+      )}
+      <input
+        type="file"
+        accept=".json,application/json"
+        hidden
+        ref={fileRef}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void importFile(f);
+          e.target.value = "";
+        }}
+      />
+
       <aside
         className="sidebar"
-        inert={!!modal || !!picker || !!detail || bodyEdit !== undefined}
+        inert={
+          !!modal ||
+          !!picker ||
+          !!detail ||
+          bodyEdit !== undefined ||
+          storageConflict ||
+          !storageSafe
+        }
       >
         <a className="brand" href="#dashboard">
           <div className="brand-icon">
@@ -1697,6 +1935,7 @@ function App() {
             <a
               key={key}
               href={`#${key}`}
+              aria-current={tab === key ? "page" : undefined}
               onClick={() => {
                 if (key === "workout" || key === "buddy") setHistoryEdit(null);
               }}
@@ -1727,7 +1966,16 @@ function App() {
           {saveStatus}
         </div>
       </aside>
-      <main inert={!!modal || !!picker || !!detail || bodyEdit !== undefined}>
+      <main
+        inert={
+          !!modal ||
+          !!picker ||
+          !!detail ||
+          bodyEdit !== undefined ||
+          storageConflict ||
+          !storageSafe
+        }
+      >
         <header className="topbar">
           <span>PERSONAL TRAINING JOURNAL</span>
           <a className="mobile-brand" href="#dashboard">
@@ -1900,14 +2148,24 @@ function App() {
                         </div>
                         <button
                           className="primary"
-                          disabled={!d.restDay && !d.movements.length}
+                          disabled={false}
                           onClick={() =>
                             d.restDay
                               ? takeRestDay(p, d)
-                              : launch(d.name, d.movements, p.id, d.id)
+                              : !d.movements.length
+                                ? (() => {
+                                    setSelectedPlan(p.id);
+                                    setSelectedDay(d.id);
+                                    go("plans");
+                                  })()
+                                : launch(d.name, d.movements, p.id, d.id)
                           }
                         >
-                          {d.restDay ? "Rest / activity" : "Start this workout"}{" "}
+                          {d.restDay
+                            ? "Rest / activity"
+                            : !d.movements.length
+                              ? "Add exercises to this day"
+                              : "Start this workout"}{" "}
                           <ArrowRight size={16} />
                         </button>
                         {!d.restDay && (
@@ -1927,22 +2185,67 @@ function App() {
                   })()
                 ) : (
                   <>
-                    <span className="tag green">A FRESH START</span>
-                    <h3 className="hero-title">Make room for progress.</h3>
+                    <span className="tag green">YOUR WORKOUT COMPANION</span>
+                    <h3 className="hero-title">
+                      {state.workouts.length
+                        ? "Build your next routine"
+                        : "Your first workout starts here"}
+                    </h3>
                     <p>
-                      Create a plan with the exercises you enjoy. Your next
-                      workout will be ready when you are.
+                      Choose your equipment and let Buddy draft a routine, or
+                      build your own. You review every exercise and target
+                      before starting.
                     </p>
-                    <button className="primary" onClick={() => go("plans")}>
-                      Build my first plan <ArrowRight size={16} />
-                    </button>
-                    <div className="decorative-lines">
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                      <i />
+                    <label className="field">
+                      Weight unit
+                      <select
+                        aria-label="Weight unit"
+                        value={state.settings.weight}
+                        onChange={(ev) =>
+                          update((s) =>
+                            switchWeightUnit(s, ev.target.value, exercise),
+                          )
+                        }
+                      >
+                        <option value="kg">Kilograms (kg)</option>
+                        <option value="lb">Pounds (lb)</option>
+                      </select>
+                    </label>
+                    <div className="actions onboarding-actions">
+                      <button
+                        className="primary"
+                        onClick={() => openBuddy({ mode: "create" })}
+                      >
+                        Make a routine with Buddy
+                      </button>
+                      <button className="secondary" onClick={() => go("plans")}>
+                        Build my own plan
+                      </button>
                     </div>
+                    <p className="hint">
+                      New journal? Confirm the equipment you can use. Bodyweight
+                      routines are available immediately.
+                    </p>
+                    <button className="ghost" onClick={() => go("equipment")}>
+                      Choose my gym equipment
+                    </button>
+                    <details>
+                      <summary>Already have a backup?</summary>
+                      <p>
+                        Restore it to continue your plans and history on this
+                        browser.
+                      </p>
+                      <button
+                        className="secondary"
+                        onClick={() => fileRef.current?.click()}
+                      >
+                        Import my backup
+                      </button>
+                    </details>
+                    <p className="hint">
+                      Saved automatically on this device. No account or AI
+                      service. Export backups from More to keep a recovery copy.
+                    </p>
                   </>
                 )}
                 {!state.active && (
@@ -2299,6 +2602,7 @@ function App() {
                                 Duplicate
                               </button>
                               <button
+                                aria-label="Delete plan"
                                 className="ghost"
                                 onClick={() =>
                                   confirm(
@@ -2479,6 +2783,7 @@ function App() {
                                 Duplicate day
                               </button>
                               <button
+                                aria-label="Delete workout day"
                                 className="ghost"
                                 onClick={() =>
                                   confirm(
@@ -2592,6 +2897,21 @@ function App() {
                       update={update}
                       notify={notify}
                       finish={finishWorkout}
+                      addExercise={() =>
+                        openPicker((e) =>
+                          update((s) => {
+                            s.active?.movements.push(makeMovement(e));
+                          }),
+                        )
+                      }
+                      cancelEmpty={() => {
+                        update((s) => {
+                          s.active = null;
+                          s.timer = null;
+                        });
+                        go("dashboard");
+                        notify("Empty workout discarded.");
+                      }}
                       alternative={(movement) =>
                         openBuddy({
                           mode: "suggest",
@@ -2665,6 +2985,9 @@ function App() {
                             </button>
                           )}
                           <button
+                            aria-label={
+                              historyEdit ? "Delete workout" : "Discard workout"
+                            }
                             className="secondary"
                             onClick={() =>
                               confirm(
@@ -3255,66 +3578,111 @@ function App() {
                   available
                 </span>
               </div>
-              <div className="equipment-grid">
-                {state.equipment.map((eq) => (
-                  <article
-                    key={eq.id}
-                    className={`equipment-card ${eq.confirmed ? "confirmed" : ""}`}
-                  >
-                    <div className="row">
-                      <Dumbbell size={19} />
-                      <span className={`tag ${eq.confirmed ? "green" : ""}`}>
-                        {eq.confirmed
-                          ? "Confirmed"
-                          : eq.listed
-                            ? "Publicly listed"
-                            : "Unconfirmed"}
-                      </span>
-                    </div>
-                    <h3>{eq.name}</h3>
-                    <label className="toggle-label">
-                      <input
-                        type="checkbox"
-                        checked={eq.confirmed}
-                        onChange={(ev) =>
-                          update((s) => {
-                            s.equipment.find((e) => e.id === eq.id)!.confirmed =
-                              ev.target.checked;
-                          })
-                        }
-                      />
-                      I have seen this equipment
-                    </label>
-                    <label className="toggle-label">
-                      <input
-                        type="checkbox"
-                        checked={eq.unavailable}
-                        disabled={!eq.confirmed}
-                        onChange={(ev) =>
-                          update((s) => {
-                            s.equipment.find(
-                              (e) => e.id === eq.id,
-                            )!.unavailable = ev.target.checked;
-                          })
-                        }
-                      />
-                      Temporarily unavailable
-                    </label>
+              <div className="equipment-search">
+                <label className="field">
+                  Find equipment
+                  <input
+                    type="search"
+                    aria-label="Find equipment"
+                    placeholder="Dumbbells, bench, cable..."
+                    value={equipmentQuery}
+                    onChange={(ev) => setEquipmentQuery(ev.target.value)}
+                  />
+                </label>
+                <button
+                  className="secondary"
+                  onClick={() =>
+                    state.buddy ? go("buddy") : openBuddy({ mode: "create" })
+                  }
+                >
+                  {state.buddy
+                    ? "Return to Workout Buddy"
+                    : "Create a routine with Buddy"}
+                </button>
+              </div>
+              {!state.equipment.some((eq) =>
+                eq.name.toLowerCase().includes(equipmentQuery.toLowerCase()),
+              ) && (
+                <Empty
+                  title="No matching equipment"
+                  description="Try a shorter name, or clear the search to see your inventory."
+                  action={
                     <button
-                      className="ghost"
-                      onClick={() => {
-                        setEquipment(eq.id);
-                        setQuery("");
-                        setMuscle("all");
-                        setGymOnly(false);
-                        setFavsOnly(false);
-                        go("library");
-                      }}
+                      className="secondary"
+                      onClick={() => setEquipmentQuery("")}
                     >
-                      See exercises <ArrowRight size={14} />
+                      Clear equipment search
                     </button>
-                  </article>
-                ))}
+                  }
+                />
+              )}
+              <div className="equipment-grid">
+                {state.equipment
+                  .filter((eq) =>
+                    eq.name
+                      .toLowerCase()
+                      .includes(equipmentQuery.toLowerCase()),
+                  )
+                  .map((eq) => (
+                    <article
+                      key={eq.id}
+                      className={`equipment-card ${eq.confirmed ? "confirmed" : ""}`}
+                    >
+                      <div className="row">
+                        <Dumbbell size={19} />
+                        <span className={`tag ${eq.confirmed ? "green" : ""}`}>
+                          {eq.confirmed
+                            ? "Confirmed"
+                            : eq.listed
+                              ? "Publicly listed"
+                              : "Unconfirmed"}
+                        </span>
+                      </div>
+                      <h3>{eq.name}</h3>
+                      <label className="toggle-label">
+                        <input
+                          type="checkbox"
+                          checked={eq.confirmed}
+                          onChange={(ev) =>
+                            update((s) => {
+                              s.equipment.find(
+                                (e) => e.id === eq.id,
+                              )!.confirmed = ev.target.checked;
+                            })
+                          }
+                        />
+                        I have seen this equipment
+                      </label>
+                      <label className="toggle-label">
+                        <input
+                          type="checkbox"
+                          checked={eq.unavailable}
+                          disabled={!eq.confirmed}
+                          onChange={(ev) =>
+                            update((s) => {
+                              s.equipment.find(
+                                (e) => e.id === eq.id,
+                              )!.unavailable = ev.target.checked;
+                            })
+                          }
+                        />
+                        Temporarily unavailable
+                      </label>
+                      <button
+                        className="ghost"
+                        onClick={() => {
+                          setEquipment(eq.id);
+                          setQuery("");
+                          setMuscle("all");
+                          setGymOnly(false);
+                          setFavsOnly(false);
+                          go("library");
+                        }}
+                      >
+                        See exercises <ArrowRight size={14} />
+                      </button>
+                    </article>
+                  ))}
               </div>
               <p className="hint">
                 Generic machine categories do not confirm individual machines.
@@ -3523,17 +3891,6 @@ function App() {
                       Export CSVs
                     </button>
                   </div>
-                  <input
-                    type="file"
-                    accept=".json,application/json"
-                    hidden
-                    ref={fileRef}
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) void importFile(f);
-                      e.target.value = "";
-                    }}
-                  />
                   <button
                     className="ghost"
                     onClick={async () => {
@@ -3562,7 +3919,9 @@ function App() {
                   </p>
                   <button
                     className="secondary"
+                    disabled={!!guideDownload}
                     onClick={async () => {
+                      setGuideDownload({ done: 0, total: 0 });
                       try {
                         const cache = await caches.open("fitspoh-media-v1");
                         const media = [
@@ -3587,13 +3946,19 @@ function App() {
                           notify("Add exercises to a saved plan first.");
                           return;
                         }
-                        let failed = 0;
+                        setGuideDownload({ done: 0, total: media.length });
+                        let failed = 0,
+                          done = 0;
                         for (const url of media) {
                           try {
-                            await cache.add(url);
+                            if (!(await cache.match(url))) await cache.add(url);
                           } catch {
                             failed++;
                           }
+                          setGuideDownload({
+                            done: ++done,
+                            total: media.length,
+                          });
                         }
                         notify(
                           failed
@@ -3604,12 +3969,23 @@ function App() {
                         notify(
                           "Media download unavailable. Use a secure browser context.",
                         );
+                      } finally {
+                        setGuideDownload(null);
                       }
                     }}
                   >
                     <Download size={16} />
-                    Download plan guides
+                    {guideDownload
+                      ? `Downloading ${guideDownload.done} of ${guideDownload.total} photos`
+                      : "Download plan guides"}
                   </button>
+                  {guideDownload && (
+                    <progress
+                      aria-label="Offline guide download progress"
+                      max={Math.max(1, guideDownload.total)}
+                      value={guideDownload.done}
+                    />
+                  )}
                 </section>
                 <section className="panel">
                   <h2>About the exercise library</h2>
@@ -3642,7 +4018,14 @@ function App() {
       <nav
         className="mobile-nav"
         aria-label="Main navigation"
-        inert={!!modal || !!picker || !!detail || bodyEdit !== undefined}
+        inert={
+          !!modal ||
+          !!picker ||
+          !!detail ||
+          bodyEdit !== undefined ||
+          storageConflict ||
+          !storageSafe
+        }
       >
         {(
           [
@@ -3668,7 +4051,9 @@ function App() {
         <a
           href="#settings"
           className={
-            ["settings", "library", "equipment", "history"].includes(tab)
+            ["settings", "library", "equipment", "history", "buddy"].includes(
+              tab,
+            )
               ? "active"
               : ""
           }
@@ -3723,7 +4108,7 @@ function App() {
         </div>
       )}
       {picker && (
-        <div className="modal-backdrop">
+        <div className="modal-backdrop" inert={storageConflict}>
           <div className="library-modal">
             <div className="section-title">
               <h2>Choose an exercise</h2>
@@ -3775,13 +4160,10 @@ function App() {
             <div className="position-images">
               {detail.images.map((img, i) => (
                 <figure key={img}>
-                  <img
+                  <ExercisePhoto
                     loading="lazy"
                     src={`exercises/${img}`}
                     alt={`${detail.name}: ${i === 0 ? "start" : "finish"} position`}
-                    onError={(e) => {
-                      e.currentTarget.style.display = "none";
-                    }}
                   />
                   <figcaption>
                     {i === 0 ? "Start position" : "Finish position"}
@@ -3925,7 +4307,7 @@ function App() {
         </div>
       )}
       {bodyEdit !== undefined && (
-        <div className="modal-backdrop">
+        <div className="modal-backdrop" inert={storageConflict}>
           <form
             className="dialog body-dialog"
             onSubmit={(ev) => {
@@ -3976,7 +4358,7 @@ function App() {
                 else s.body.push(b);
               });
               setBodyEdit(undefined);
-              notify("Body stats saved.");
+              notify("Body stats added to your journal.");
             }}
           >
             <div className="section-title">
@@ -4049,7 +4431,11 @@ function App() {
         </div>
       )}
       {modal && (
-        <div className="modal-backdrop" onClick={() => setModal(null)}>
+        <div
+          className="modal-backdrop"
+          inert={storageConflict}
+          onClick={() => setModal(null)}
+        >
           <div onClick={(e) => e.stopPropagation()}>{modal}</div>
         </div>
       )}
@@ -4204,7 +4590,6 @@ function NameForm({
       <label className="field">
         Name
         <input
-          autoFocus
           required
           maxLength={100}
           value={value}

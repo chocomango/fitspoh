@@ -499,14 +499,12 @@ test("Buddy's explicit last-load action preserves unitless stack settings when u
       exact: true,
     })
     .click();
-  const movement = page
-    .locator(".buddy-page .movement-card")
-    .filter({
-      has: page.getByRole("button", {
-        name: "Lateral Raise Machine",
-        exact: true,
-      }),
-    });
+  const movement = page.locator(".buddy-page .movement-card").filter({
+    has: page.getByRole("button", {
+      name: "Lateral Raise Machine",
+      exact: true,
+    }),
+  });
   await expect(
     movement.getByLabel("Set 1 weight", { exact: true }),
   ).toHaveValue("30");

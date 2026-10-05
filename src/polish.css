@@ -545,7 +545,12 @@ html[data-theme="sumikko"] {
     display: flex;
     align-items: center;
     gap: 7px;
-    font-family: "Manrope", sans-serif;
+    font-family:
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      sans-serif;
     font-size: 22px;
     font-weight: 800;
     letter-spacing: -1px;

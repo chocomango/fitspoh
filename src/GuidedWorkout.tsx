@@ -3,6 +3,8 @@ import type { Exercise, State, Workout, SetLog, Movement } from "./types";
 import { currentStep, workoutQueue } from "./guided";
 import { postpone, weightIncrement, saveIncrement } from "./mobile.mjs";
 import { useWorkoutWakeLock } from "./useWorkoutWakeLock";
+import { setIssue, sessionComparisons } from "./workout-feedback.mjs";
+import { ExercisePhoto } from "./components";
 import {
   toDisplayDistance,
   toStoredDistance,
@@ -19,6 +21,8 @@ type Props = {
   notify: (message: string) => void;
   finish: () => void;
   alternative: (movement: Movement) => void;
+  addExercise: () => void;
+  cancelEmpty: () => void;
 };
 const number = (n: number) => Number(n.toFixed(2));
 export function GuidedWorkout({
@@ -29,8 +33,12 @@ export function GuidedWorkout({
   notify,
   finish,
   alternative,
+  addExercise,
+  cancelEmpty,
 }: Props) {
   const [busy, setBusy] = useState(false);
+  const [undoSnapshot, setUndoSnapshot] = useState<Workout | null>(null);
+  const [entryError, setEntryError] = useState("");
   const [incrementText, setIncrementText] = useState<string | null>(null);
   const wakeStatus = useWorkoutWakeLock(!!state.settings.keepAwake);
   const w = state.active!;
@@ -51,6 +59,10 @@ export function GuidedWorkout({
   const summary = !step || phase === "summary";
   const resting = phase === "rest";
   const remaining = Math.max(0, Math.ceil(((state.timer ?? now) - now) / 1000));
+  const allSets = w.movements.flatMap((m) => m.sets);
+  const doneCount = allSets.filter((s) => s.done).length;
+  const skippedCount = allSets.filter((s) => s.skipped && !s.done).length;
+  const comparisons = summary ? sessionComparisons(w, state.workouts) : [];
   useEffect(() => {
     if (
       !g ||
@@ -70,11 +82,16 @@ export function GuidedWorkout({
       });
     }
   }, [w.id, step?.set.id, g?.setId, phase]);
-  const change = (fn: (active: Workout) => void) =>
+  const change = (fn: (active: Workout) => void) => {
+    setUndoSnapshot(null);
+    setEntryError("");
     update((s) => {
       if (s.active) fn(s.active);
     });
-  const start = () =>
+  };
+  const start = () => {
+    setUndoSnapshot(null);
+    setEntryError("");
     update((s) => {
       if (s.active)
         s.active.guided = {
@@ -84,6 +101,7 @@ export function GuidedWorkout({
         };
       s.timer = null;
     });
+  };
   const result = (set: SetLog, metadata = e) =>
     metadata?.mode === "strength"
       ? set.needsLoad
@@ -92,12 +110,24 @@ export function GuidedWorkout({
       : `${set.seconds}s${metadata?.mode === "cardio" ? ` · ${number(toDisplayDistance(set.distance, state.settings.distance))} ${state.settings.distance}` : ""}`;
   const complete = () => {
     if (!step || !e) return;
-    if (step.set.needsLoad) {
-      notify(
-        "Choose a load for this set, or explicitly enter 0 for no added load.",
-      );
+    const issue = setIssue(step.set, e);
+    if (issue) {
+      setEntryError(issue);
+      notify("Check the set entry before completing it.");
+      document
+        .getElementById(
+          "guided-" +
+            (step.set.needsLoad
+              ? "weight"
+              : e.mode === "strength"
+                ? "reps"
+                : "seconds"),
+        )
+        ?.focus();
       return;
     }
+    setEntryError("");
+    setUndoSnapshot(structuredClone(w));
     const oldBest = Math.max(
       0,
       ...[...state.workouts, w]
@@ -119,6 +149,12 @@ export function GuidedWorkout({
     update((s) => {
       const active = s.active!;
       const current = currentStep(active)!;
+      if (
+        !current ||
+        current.set.id !== step.set.id ||
+        active.guided?.phase !== "entry"
+      )
+        return;
       if (active.deferredInputs) delete active.deferredInputs[current.set.id];
       current.set.done = true;
       current.set.skipped = false;
@@ -150,7 +186,9 @@ export function GuidedWorkout({
       s.timer = rest ? Date.now() + current.movement.rest * 1000 : null;
     });
   };
-  const skip = () =>
+  const skip = () => {
+    setUndoSnapshot(null);
+    setEntryError("");
     update((s) => {
       const active = s.active!;
       const current = currentStep(active);
@@ -167,6 +205,7 @@ export function GuidedWorkout({
       };
       s.timer = null;
     });
+  };
   const field = (
     key: "weight" | "reps" | "seconds" | "distance" | "effort",
     label: string,
@@ -224,6 +263,8 @@ export function GuidedWorkout({
           max={max}
           step={key === "reps" || key === "seconds" ? "1" : "any"}
           aria-label={label}
+          aria-invalid={entryError ? true : undefined}
+          aria-describedby={entryError ? "guided-entry-error" : undefined}
           value={shown}
           onChange={(ev) => editValue(ev.target.value)}
         />
@@ -327,12 +368,30 @@ export function GuidedWorkout({
           <p>{w.notes}</p>
         </details>
       )}
-      {summary ? (
+      {!allSets.length ? (
+        <>
+          <h2>Build this workout</h2>
+          <p>
+            Add your first exercise. You can choose its sets, load and rest time
+            before logging anything.
+          </p>
+          <button className="primary guided-primary" onClick={addExercise}>
+            Add first exercise
+          </button>
+          <button className="secondary" onClick={cancelEmpty}>
+            Cancel empty workout
+          </button>
+        </>
+      ) : summary ? (
         <>
           <h2>Workout review</h2>
           <p>
             {w.movements.flatMap((m) => m.sets).filter((s) => s.done).length}{" "}
             completed sets
+          </p>
+          <p className="hint">
+            {Math.max(1, Math.round((now - Date.parse(w.started)) / 60000))} min
+            · {skippedCount} skipped sets
           </p>
           {w.movements.map((m) => (
             <div className="guided-results" key={m.id}>
@@ -347,6 +406,42 @@ export function GuidedWorkout({
                       : "Unfinished"}
                 </p>
               ))}
+              {comparisons
+                .filter(
+                  (row) =>
+                    row.movementId === m.id &&
+                    lookup(row.exerciseId)?.mode === "strength" &&
+                    !/assisted/i.test(lookup(row.exerciseId)?.name ?? ""),
+                )
+                .map((row) => {
+                  const metadata = lookup(row.exerciseId);
+                  return (
+                    <div
+                      className="guided-comparison"
+                      key={row.movementId + ":" + row.weight}
+                    >
+                      <p>
+                        {number(
+                          displayLoad(
+                            row.weight,
+                            state.settings.weight,
+                            metadata,
+                          ),
+                        )}{" "}
+                        {loadUnit(state.settings.weight, metadata)}
+                        {metadata?.equipment === "dumbbell"
+                          ? " per hand"
+                          : ""}: {row.reps} total reps across {row.sets} working
+                        sets
+                      </p>
+                      <p className="hint">
+                        {row.previousReps === undefined
+                          ? "First completed working sets at this load."
+                          : `Last session at this load: ${row.previousReps} reps across ${row.previousSets} working sets.`}
+                      </p>
+                    </div>
+                  );
+                })}
             </div>
           ))}
           {last && (
@@ -394,6 +489,17 @@ export function GuidedWorkout({
               ? ` · Circuit ${step.movement.superset}`
               : ""}
           </p>
+          <label className="workout-progress">
+            <span>
+              {doneCount} of {allSets.length - skippedCount} sets completed
+              {skippedCount ? ` · ${skippedCount} skipped` : ""}
+            </span>
+            <progress
+              aria-label="Workout set progress"
+              value={doneCount}
+              max={Math.max(1, allSets.length - skippedCount)}
+            />
+          </label>
           <h2>{e.name}</h2>
           {(phase === "intro" || phase === "between") && (
             <>
@@ -414,7 +520,7 @@ export function GuidedWorkout({
                 </div>
               )}
               {e.images[0] && (
-                <img
+                <ExercisePhoto
                   className="guided-image"
                   src={`exercises/${e.images[0]}`}
                   alt={`${e.name} setup`}
@@ -569,6 +675,11 @@ export function GuidedWorkout({
                     : "Complete set";
                 })()}
               </button>
+              {entryError && (
+                <p id="guided-entry-error" className="entry-error" role="alert">
+                  {entryError}
+                </p>
+              )}
             </>
           ) : (
             <>
@@ -624,6 +735,7 @@ export function GuidedWorkout({
                             s.timer = null;
                         });
                         setBusy(false);
+                        setUndoSnapshot(null);
                         notify(
                           "Moved to the end of this workout. Your saved plan is unchanged.",
                         );
@@ -653,6 +765,25 @@ export function GuidedWorkout({
         </>
       ) : (
         <p>Open Overview to add an exercise.</p>
+      )}
+      {undoSnapshot && (
+        <button
+          className="secondary"
+          onClick={() => {
+            update((s) => {
+              if (s.active?.id === undoSnapshot.id) {
+                s.active = structuredClone(undoSnapshot);
+                s.timer = null;
+              }
+            });
+            setUndoSnapshot(null);
+            notify(
+              "Set completion undone. Adjust the result and complete it again.",
+            );
+          }}
+        >
+          Undo completed set
+        </button>
       )}
     </section>
   );

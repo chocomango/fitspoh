@@ -53,7 +53,9 @@ test("mobile workout fields fit narrow screens and effort tracking remains usabl
   await page.setViewportSize({ width: 320, height: 740 });
   await page.goto("#workout");
   await page.getByRole("button", { name: "Start empty workout" }).click();
-  await page.getByRole("button", { name: "Add exercise", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Add first exercise", exact: true })
+    .click();
   await page.getByLabel("Search exercises").fill("Barbell Curl");
   await page
     .locator(".library-modal .exercise-card")
@@ -62,6 +64,7 @@ test("mobile workout fields fit narrow screens and effort tracking remains usabl
     })
     .getByRole("button", { name: "Add exercise", exact: true })
     .click();
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
   await expect(page.getByLabel("Set 1 weight")).toBeVisible();
   await page.getByLabel("Set 1 weight").fill("20");
   await page.getByLabel("Set 1 reps").fill("10");

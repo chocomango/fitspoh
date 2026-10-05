@@ -1,3 +1,4 @@
+import { ExercisePhoto } from "./components";
 import { useState } from "react";
 import type {
   State,
@@ -286,7 +287,7 @@ export function WorkoutBuddy({
                 return (
                   <article className="panel buddy-option" key={e.id}>
                     {e.images[0] && (
-                      <img
+                      <ExercisePhoto
                         loading="lazy"
                         src={`exercises/${e.images[0]}`}
                         alt={`${e.name} setup`}

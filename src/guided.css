@@ -85,6 +85,102 @@
 .guided-workout button {
   min-height: 44px;
 }
+.workout-progress {
+  display: block;
+  font-size: 13px;
+  color: var(--muted);
+  margin: 12px 0;
+}
+.workout-progress progress {
+  display: block;
+  width: 100%;
+  height: 8px;
+  margin-top: 8px;
+  accent-color: var(--lime);
+}
+.entry-error {
+  color: var(--danger, #f78b8b);
+}
+.onboarding-actions {
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0;
+}
+.equipment-search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 20px;
+}
+.equipment-search .field {
+  flex: 1;
+  min-width: 200px;
+}
+.recovery-banner {
+  position: fixed;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(600px, calc(100% - 24px));
+  max-height: calc(100dvh - 180px);
+  overflow: auto;
+  z-index: 300;
+  background: var(--panel);
+  color: var(--text);
+  border: 2px solid var(--lime);
+  padding: 18px;
+}
+.guided-comparison {
+  border-top: 1px solid var(--border);
+  margin-top: 12px;
+  padding-top: 8px;
+}
+.recovery-banner p {
+  line-height: 1.5;
+}
+.recovery-banner .actions {
+  flex-wrap: wrap;
+}
+.recovery-banner button {
+  min-height: 44px;
+}
+.photo-fallback {
+  display: grid;
+  place-items: center;
+  min-height: 120px;
+  background: var(--surface);
+  color: var(--muted);
+  padding: 16px;
+  text-align: center;
+}
+.chart-values {
+  margin-top: 12px;
+  font-size: 13px;
+}
+.chart-values summary {
+  cursor: pointer;
+  padding: 10px 0;
+}
+.chart-table {
+  max-height: 240px;
+  overflow: auto;
+}
+.chart-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.chart-table caption {
+  text-align: left;
+  padding: 8px 0;
+  color: var(--muted);
+}
+.chart-table th,
+.chart-table td {
+  text-align: left;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
 .quick-adjustments {
   display: flex;
   gap: 8px;
@@ -131,4 +227,8 @@
     max-width: 55%;
     overflow-wrap: anywhere;
   }
+}
+
+[data-theme="sumikko"] .entry-error {
+  color: #963f46;
 }

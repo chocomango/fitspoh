@@ -1,4 +1,34 @@
-import { useId } from "react";
+import { useId, useState } from "react";
+export function ExercisePhoto({
+  src,
+  alt,
+  className,
+  loading = "lazy",
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+  loading?: "lazy" | "eager";
+}) {
+  const [failedSrc, setFailedSrc] = useState("");
+  return failedSrc === src ? (
+    <div
+      className={`${className ?? ""} photo-fallback`}
+      role="img"
+      aria-label={`${alt}. Photo unavailable.`}
+    >
+      Photo unavailable. Use the written exercise guide.
+    </div>
+  ) : (
+    <img
+      src={src}
+      alt={alt}
+      className={className}
+      loading={loading}
+      onError={() => setFailedSrc(src)}
+    />
+  );
+}
 export function Chart({
   points,
   goal,
@@ -9,6 +39,7 @@ export function Chart({
   label?: string;
 }) {
   const gradientId = useId();
+  const descriptionId = useId();
   if (!points.length)
     return (
       <div className="chart-empty">
@@ -29,7 +60,16 @@ export function Chart({
   const y = (v: number) => 160 - ((v - min) / (max - min)) * 130;
   return (
     <div className="chart">
-      <svg viewBox="0 0 610 200" role="img" aria-label={`${label} over time`}>
+      <svg
+        viewBox="0 0 610 200"
+        role="img"
+        aria-label={`${label} over time`}
+        aria-describedby={descriptionId}
+      >
+        <desc id={descriptionId}>
+          {sorted.length} recorded values. First: {sorted[0].value.toFixed(2)}{" "}
+          {label}. Latest: {sorted.at(-1)!.value.toFixed(2)} {label}.
+        </desc>
         <defs>
           <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
             <stop
@@ -117,6 +157,28 @@ export function Chart({
           {new Date(sorted.at(-1)!.date).toLocaleDateString()}
         </text>
       </svg>
+      <details className="chart-values">
+        <summary>View recorded values</summary>
+        <div className="chart-table">
+          <table>
+            <caption>Recorded values ({label})</caption>
+            <thead>
+              <tr>
+                <th scope="col">Date</th>
+                <th scope="col">{label}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((p, i) => (
+                <tr key={i}>
+                  <td>{new Date(p.date).toLocaleDateString()}</td>
+                  <td>{p.value.toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
     </div>
   );
 }
