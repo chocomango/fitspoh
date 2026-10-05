@@ -33,6 +33,7 @@ export type SetLog = {
   effortKind?: "RIR" | "RPE";
   done: boolean;
   skipped?: boolean;
+  needsLoad?: boolean;
 };
 export type Movement = {
   id: string;
@@ -94,6 +95,40 @@ export type BodyEntry = {
   thigh?: number;
   notes: string;
 };
+export type BuddyPreferences = {
+  mode: "suggest" | "adapt" | "create";
+  output: "routine" | "plan";
+  experience: "beginner" | "intermediate" | "advanced";
+  focus: "full-body" | "upper" | "lower" | "push" | "pull" | "legs";
+  minutes: 20 | 40 | 60;
+  frequency: 2 | 3 | 4 | 5;
+  avoidOverhead: boolean;
+  avoidGrip: boolean;
+  exclusions: string[];
+  equipmentIds?: string[];
+  exerciseId?: string;
+  muscle?: string;
+  sourcePlanId?: string;
+  sourceDayId?: string;
+  sourceMovementId?: string;
+  sourceScope?: "plan" | "active";
+};
+export type BuddyDraft = {
+  id: string;
+  name: string;
+  days: Day[];
+  changes: string[];
+  warnings: string[];
+  reasons: Record<string, string>;
+  suggestions: { exerciseId: string; reason: string; newToYou: boolean }[];
+  source?: {
+    planId?: string;
+    dayId?: string;
+    movementId?: string;
+    workoutId?: string;
+    snapshot: Day;
+  };
+};
 export type State = {
   version: 1;
   plans: Plan[];
@@ -115,4 +150,5 @@ export type State = {
     lastBackup?: string;
   };
   timer: number | null;
+  buddy?: { preferences: BuddyPreferences; draft?: BuddyDraft };
 };

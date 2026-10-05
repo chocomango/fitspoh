@@ -1,0 +1,123 @@
+.buddy-page {
+  max-width: 780px;
+  margin: 0 auto;
+}
+.buddy-bubble {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 20px 20px 20px 6px;
+  padding: 22px;
+  margin-bottom: 18px;
+}
+.buddy-bubble h2,
+.buddy-bubble h3 {
+  margin-top: 0;
+}
+.buddy-bubble p,
+.buddy-bubble li {
+  line-height: 1.65;
+}
+.buddy-bubble .field {
+  margin: 16px 0;
+}
+.buddy-bubble select,
+.buddy-bubble input,
+.buddy-bubble textarea {
+  width: 100%;
+}
+.buddy-bubble select {
+  text-overflow: ellipsis;
+}
+.buddy-bubble input[type="checkbox"] {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+.buddy-choice-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0;
+}
+.buddy-choice-group button,
+.buddy-page button {
+  min-height: 44px;
+}
+.buddy-checks {
+  display: grid;
+  gap: 12px;
+  margin: 12px 0;
+}
+.buddy-checks label {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-height: 44px;
+}
+.buddy-page details summary {
+  cursor: pointer;
+  min-height: 44px;
+  line-height: 1.6;
+}
+.buddy-warnings {
+  border-color: var(--lime);
+}
+.buddy-option img {
+  width: 100%;
+  height: 190px;
+  object-fit: contain;
+  background: white;
+  border-radius: 14px;
+}
+.buddy-option {
+  margin-bottom: 18px;
+}
+.buddy-response {
+  border-radius: 20px 20px 6px 20px;
+}
+.buddy-generate {
+  width: 100%;
+  min-height: 56px !important;
+  margin-bottom: 18px;
+}
+.buddy-page .actions {
+  flex-wrap: wrap;
+}
+.buddy-accept button {
+  margin: 8px 4px 8px 0;
+}
+.buddy-page .movement-actions {
+  flex-wrap: wrap;
+}
+.buddy-page .movement-card {
+  margin-bottom: 20px;
+}
+.buddy-context {
+  padding: 14px;
+  margin: 12px 0;
+  border-radius: 14px;
+  background: var(--surface);
+  line-height: 1.6;
+}
+.buddy-context p {
+  margin: 6px 0 12px;
+}
+.buddy-page .movement-card .field input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  vertical-align: middle;
+  margin-right: 8px;
+}
+@media (max-width: 600px) {
+  .buddy-bubble {
+    padding: 16px;
+  }
+  .buddy-page .buddy-choice-group button {
+    flex: 1 0 auto;
+    white-space: normal;
+  }
+  .buddy-page .set-table {
+    font-size: 12px;
+  }
+}

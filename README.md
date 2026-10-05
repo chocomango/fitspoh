@@ -34,6 +34,14 @@ Trap-bar loads are stored per side, lateral-machine settings stay unitless even 
 
 Weights are logged per hand for dumbbells, as total load for barbells, and as assistance on assisted machines. Volume is recorded load × completed reps, excluding warmup sets and assisted exercises; it does not double per-hand dumbbell loads. Muscle summaries count primary-muscle working sets, not estimated recovery.
 
+## Workout Buddy
+
+Open **More → Workout Buddy**, or use **Draft with Buddy** on a plan day and **Find alternatives** on an exercise. The chat-style choices provide offline, rules-based suggestions: compatible alternatives, shorter drafts of saved days, and new routines or 2–5-day plans. Curated movement families, confirmed session equipment, experience, favourites, and completed history determine the suggestions. Review overhead/grip exclusions and exercise exclusions for each session; the Buddy does not infer recovery from previous notes.
+
+Drafts stay separate until explicitly saved or started. Adapting preserves main targets and trims optional exercises first; unresolved duration conflicts are shown. Durations are estimates (45 seconds per strength set, entered durations for timed work, configured rests, and 90 seconds per exercise for setup/transitions). New strength loads are blank; **Use last load** explicitly copies completed loads with their original per-hand, per-side, plates, or stack convention. An unchosen load cannot be logged as a completed set; enter a load or explicitly enter zero for no added load.
+
+Review and edit exercise order, replacements, sets, reps, loads, rest, and notes before saving. Existing-day updates and exercise replacements require confirmation; changed sources and replacements that would remove completed sets are blocked. Buddy preferences, exclusions, and the latest draft are saved locally and included in full backups. Old backups remain compatible. There is no AI service, backend, API key, or external transmission of workout context.
+
 ## Persistence, backups, and offline use
 
 - All records stay in the current browser profile's IndexedDB database. No account, analytics, server database, or automatic device synchronization.

@@ -76,10 +76,18 @@ export function GuidedWorkout({
     });
   const result = (set: SetLog, metadata = e) =>
     metadata?.mode === "strength"
-      ? `${number(displayLoad(set.weight, state.settings.weight, metadata))} ${loadUnit(state.settings.weight, metadata)} × ${set.reps} reps`
+      ? set.needsLoad
+        ? `Choose load · ${set.reps} reps`
+        : `${number(displayLoad(set.weight, state.settings.weight, metadata))} ${loadUnit(state.settings.weight, metadata)} × ${set.reps} reps`
       : `${set.seconds}s${metadata?.mode === "cardio" ? ` · ${number(toDisplayDistance(set.distance, state.settings.distance))} ${state.settings.distance}` : ""}`;
   const complete = () => {
     if (!step || !e) return;
+    if (step.set.needsLoad) {
+      notify(
+        "Choose a load for this set, or explicitly enter 0 for no added load.",
+      );
+      return;
+    }
     const oldBest = Math.max(
       0,
       ...[...state.workouts, w]
@@ -106,7 +114,10 @@ export function GuidedWorkout({
       const next = currentStep({ ...active, guided: undefined });
       if (next) {
         const prior = [...next.movement.sets].reverse().find((s) => s.done);
-        if (prior) next.set.weight = prior.weight;
+        if (prior) {
+          next.set.weight = prior.weight;
+          next.set.needsLoad = false;
+        }
       }
       // A grouped round ends before the index advances or the group changes.
       const roundEnd =
@@ -165,7 +176,9 @@ export function GuidedWorkout({
           value={
             g?.draft?.setId === step.set.id
               ? (g.draft.values[key] ?? number(value))
-              : number(value)
+              : key === "weight" && step.set.needsLoad
+                ? ""
+                : number(value)
           }
           onChange={(ev) => {
             const text = ev.target.value;
@@ -195,6 +208,7 @@ export function GuidedWorkout({
                   : key === "distance"
                     ? toStoredDistance(raw, state.settings.distance)
                     : raw;
+              if (key === "weight") target.needsLoad = text === "";
               if (key === "effort" && state.settings.effort !== "off")
                 target.effortKind = state.settings.effort;
             });

@@ -40,6 +40,8 @@ import type {
   Day,
   SetLog,
   BodyEntry,
+  BuddyDraft,
+  BuddyPreferences,
 } from "./types";
 import { initialState, readState, writeState } from "./store";
 import {
@@ -65,6 +67,13 @@ import "./style.css";
 import "./polish.css";
 import "./guided.css";
 import { GuidedWorkout } from "./GuidedWorkout";
+import { WorkoutBuddy } from "./WorkoutBuddy";
+import {
+  defaultBuddyPreferences,
+  eligibility,
+  freshMovements,
+  starterMovement,
+} from "./buddy.mjs";
 import { installPersonalPlan, PERSONAL_TEMPLATE } from "./prebuilt-plan.mjs";
 const library = exerciseData as Exercise[];
 const NAV = [
@@ -75,6 +84,7 @@ const NAV = [
   ["body", "Body progress", Scale],
   ["history", "History", History],
   ["equipment", "My gym", SlidersHorizontal],
+  ["buddy", "Workout Buddy", Star],
   ["settings", "Settings", Settings],
 ] as const;
 const localDate = (s = new Date()) =>
@@ -146,6 +156,7 @@ function App() {
     ),
     [bodyForm, setBodyForm] = useState<Record<string, string>>({}),
     [historyMonth, setHistoryMonth] = useState(today().slice(0, 7));
+  const [buddySetup, setBuddySetup] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null),
     saveQueue = useRef(Promise.resolve()),
     undoRef = useRef<Workout | null>(null),
@@ -300,11 +311,35 @@ function App() {
     location.hash = name;
     setTab(name);
   };
+  const openBuddy = (choices: Partial<BuddyPreferences> = {}) => {
+    update((s) => {
+      s.buddy = {
+        ...s.buddy,
+        preferences: {
+          ...(s.buddy?.preferences ?? defaultBuddyPreferences()),
+          exerciseId: undefined,
+          muscle: undefined,
+          sourcePlanId: undefined,
+          sourceDayId: undefined,
+          sourceMovementId: undefined,
+          sourceScope: undefined,
+          ...choices,
+        },
+      };
+    });
+    setBuddySetup(true);
+    setHistoryEdit(null);
+    go("buddy");
+  };
+  useEffect(() => {
+    if (tab !== "buddy") setBuddySetup(false);
+  }, [tab]);
   const launch = (
     name: string,
     movements: Movement[] = [],
     planId?: string,
     dayId?: string,
+    options: { useHistory?: boolean; notes?: string } = {},
   ) => {
     setHistoryEdit(null);
     if (state.active) {
@@ -318,10 +353,13 @@ function App() {
         name,
         started: new Date().toISOString(),
         movements: structuredClone(movements).map((m) => {
-          const previous = [...s.workouts]
-            .sort((a, b) => b.started.localeCompare(a.started))
-            .flatMap((w) => w.movements)
-            .find((x) => x.exerciseId === m.exerciseId);
+          const previous =
+            options.useHistory === false || m.sets.some((t) => t.needsLoad)
+              ? undefined
+              : [...s.workouts]
+                  .sort((a, b) => b.started.localeCompare(a.started))
+                  .flatMap((w) => w.movements)
+                  .find((x) => x.exerciseId === m.exerciseId);
           return {
             ...m,
             id: uid(),
@@ -350,9 +388,11 @@ function App() {
           };
         }),
         notes:
+          options.notes ??
           state.plans
             .find((p) => p.id === planId)
-            ?.days.find((d) => d.id === dayId)?.notes ?? "",
+            ?.days.find((d) => d.id === dayId)?.notes ??
+          "",
         planId,
         dayId,
         guided: { phase: "intro", overview: !movements.length },
@@ -610,7 +650,13 @@ function App() {
       (muscle === "all" || e.primaryMuscles.includes(muscle)) &&
       (equipment === "all" || e.required.includes(equipment)) &&
       (!gymOnly || available(e, state.equipment)) &&
-      (!favsOnly || state.favourites.includes(e.id)),
+      (!favsOnly || state.favourites.includes(e.id)) &&
+      (!(picker && tab === "buddy") ||
+        eligibility(
+          e,
+          state.buddy?.preferences ?? defaultBuddyPreferences(),
+          state,
+        ).ok),
   );
   const renderLibrary = (selecting = false) => (
     <>
@@ -775,6 +821,7 @@ function App() {
     movements: Movement[],
     edit: (fn: (m: Movement[]) => void, undo?: boolean) => void,
     isPlan = false,
+    context?: (m: Movement) => React.ReactNode,
   ) =>
     movements.map((m, index) => {
       const e = exercise(m.exerciseId);
@@ -812,6 +859,23 @@ function App() {
             <p className="tag">
               Skipped sets: {m.sets.filter((t) => t.skipped && !t.done).length}
             </p>
+          )}
+          {tab !== "buddy" && (isPlan || !historyEdit) && (
+            <button
+              className="secondary"
+              onClick={() =>
+                openBuddy({
+                  mode: "suggest",
+                  exerciseId: e.id,
+                  sourceScope: isPlan ? "plan" : "active",
+                  sourcePlanId: isPlan ? currentPlan?.id : undefined,
+                  sourceDayId: isPlan ? currentDay?.id : undefined,
+                  sourceMovementId: m.id,
+                })
+              }
+            >
+              Find alternatives
+            </button>
           )}
           <div className="movement-head">
             <button className="movement-thumb" onClick={() => setDetail(e)}>
@@ -916,7 +980,21 @@ function App() {
                 onClick={() => {
                   openPicker((replacement) =>
                     edit((ms) => {
-                      ms[index] = makeMovement(replacement);
+                      if (tab === "buddy") {
+                        const result = eligibility(
+                          replacement,
+                          state.buddy?.preferences ?? defaultBuddyPreferences(),
+                          state,
+                        );
+                        if (!result.ok) {
+                          notify(result.reason);
+                          return;
+                        }
+                      }
+                      ms[index] =
+                        tab === "buddy"
+                          ? starterMovement(replacement)
+                          : makeMovement(replacement);
                     }),
                   );
                   setMuscle(e.primaryMuscles[0] ?? "all");
@@ -938,6 +1016,7 @@ function App() {
               </button>
             </div>
           </div>
+          {context?.(m)}
           <div
             className={`set-table ${state.settings.effort !== "off" ? "has-effort" : ""}`}
           >
@@ -1023,10 +1102,22 @@ function App() {
                     <>
                       <NumberInput
                         label={`Set ${i + 1} weight`}
-                        value={displayLoad(s.weight, state.settings.weight, e)}
+                        value={
+                          s.needsLoad
+                            ? undefined
+                            : displayLoad(s.weight, state.settings.weight, e)
+                        }
                         step={0.5}
+                        onClear={() =>
+                          edit((ms) => {
+                            ms[index].sets[i].weight = 0;
+                            ms[index].sets[i].needsLoad = true;
+                            ms[index].sets[i].done = false;
+                          })
+                        }
                         onChange={(v) =>
                           edit((ms) => {
+                            ms[index].sets[i].needsLoad = false;
                             ms[index].sets[i].weight = storedLoad(
                               v,
                               state.settings.weight,
@@ -1119,6 +1210,12 @@ function App() {
                           ms[index].sets.splice(i, 1);
                         });
                       else {
+                        if (s.needsLoad && !s.done) {
+                          notify(
+                            "Choose a load for this set, or explicitly enter 0 for no added load.",
+                          );
+                          return;
+                        }
                         edit((ms) => {
                           ms[index].sets[i].done = !s.done;
                           ms[index].sets[i].skipped = false;
@@ -1327,6 +1424,163 @@ function App() {
       },
     );
   };
+  const acceptBuddyDraft = (
+    action: "plan" | "day" | "start" | "update",
+    draft: BuddyDraft,
+    dayId: string,
+    targetPlanId: string,
+  ) => {
+    const chosen = draft.days.find((d) => d.id === dayId);
+    const prefs = state.buddy?.preferences ?? defaultBuddyPreferences();
+    if (
+      !chosen ||
+      !draft.days.length ||
+      draft.days.some(
+        (d) =>
+          !d.movements.length ||
+          d.movements.some(
+            (m) =>
+              !m.sets.length ||
+              !exercise(m.exerciseId) ||
+              !eligibility(
+                exercise(m.exerciseId)!,
+                prefs,
+                state,
+                !(draft.source && !draft.source.movementId),
+              ).ok,
+          ),
+      )
+    ) {
+      notify(
+        "Resolve the draft's empty days, equipment, or exclusions before accepting.",
+      );
+      return;
+    }
+    const copyDay = (d: Day): Day => ({
+      ...structuredClone(d),
+      id: uid(),
+      movements: freshMovements(d.movements),
+    });
+    if (action === "start") {
+      launch(chosen.name, chosen.movements, undefined, undefined, {
+        useHistory: false,
+        notes: chosen.notes,
+      });
+      return;
+    }
+    if (action === "plan") {
+      const plan: Plan = {
+        id: uid(),
+        name: draft.name || "Buddy plan",
+        next: 0,
+        days: draft.days.map(copyDay),
+        notes:
+          "Created from an offline Workout Buddy draft. Rest whenever needed; no fixed calendar or automatic load increases.",
+      };
+      update((s) => {
+        s.plans.push(plan);
+      });
+      setSelectedPlan(plan.id);
+      setSelectedDay(null);
+      go("plans");
+      notify("Draft saved as a new plan.");
+      return;
+    }
+    if (action === "day") {
+      const planId = targetPlanId || state.plans[0]?.id;
+      if (!state.plans.some((p) => p.id === planId)) {
+        notify("Choose an existing plan first.");
+        return;
+      }
+      const day = copyDay(chosen);
+      update((s) => {
+        s.plans.find((p) => p.id === planId)?.days.push(day);
+      });
+      setSelectedPlan(planId);
+      setSelectedDay(day.id);
+      go("plans");
+      notify("Draft saved as a new day.");
+      return;
+    }
+    const source = draft.source;
+    if (!source) return;
+    const original = source.workoutId
+      ? state.active?.id === source.workoutId
+        ? {
+            id: state.active.id,
+            name: state.active.name,
+            movements: state.active.movements,
+          }
+        : undefined
+      : state.plans
+          .find((p) => p.id === source.planId)
+          ?.days.find((d) => d.id === source.dayId);
+    const oldMovement = original?.movements.find(
+      (m) => m.id === source.movementId,
+    );
+    const snapshotMovement = source.snapshot.movements.find(
+      (m) => m.id === source.movementId,
+    );
+    const unchanged = source.movementId
+      ? oldMovement &&
+        JSON.stringify(oldMovement) === JSON.stringify(snapshotMovement)
+      : original &&
+        JSON.stringify(original) === JSON.stringify(source.snapshot);
+    if (!unchanged) {
+      notify(
+        "The original has changed since this draft. Generate a fresh draft or save this as a new day.",
+      );
+      return;
+    }
+    if (source.workoutId && oldMovement?.sets.some((t) => t.done)) {
+      notify(
+        "This exercise already has completed sets. Keep those records and save the alternative as a new day instead.",
+      );
+      return;
+    }
+    confirm(
+      source.movementId
+        ? "Apply this exercise replacement?"
+        : "Update this saved day?",
+      source.movementId
+        ? `Replace ${exercise(oldMovement!.exerciseId)?.name} with ${chosen.movements.map((m) => exercise(m.exerciseId)?.name).join(", ")}. Review the loads and targets in the draft first.`
+        : `Replace ${original!.name} with the reviewed ${chosen.movements.length}-exercise draft. Past workouts remain unchanged.`,
+      () => {
+        update((s) => {
+          const target = source.workoutId
+            ? s.active?.id === source.workoutId
+              ? s.active
+              : undefined
+            : s.plans
+                .find((p) => p.id === source.planId)
+                ?.days.find((d) => d.id === source.dayId);
+          if (!target) return;
+          if (source.movementId) {
+            const index = target.movements.findIndex(
+              (m) => m.id === source.movementId,
+            );
+            if (index >= 0)
+              target.movements.splice(
+                index,
+                1,
+                ...freshMovements(chosen.movements),
+              );
+          } else {
+            target.movements = freshMovements(chosen.movements);
+            target.name = chosen.name;
+            if ("notes" in target) target.notes = chosen.notes ?? "";
+          }
+        });
+        if (source.workoutId) go("workout");
+        else {
+          setSelectedPlan(source.planId!);
+          setSelectedDay(source.dayId!);
+          go("plans");
+        }
+        notify("Reviewed draft applied.");
+      },
+    );
+  };
   const csvExport = () => {
     const escape = (v: unknown) => `"${String(v ?? "").replaceAll('"', '""')}"`;
     const rows = [
@@ -1424,7 +1678,7 @@ function App() {
               key={key}
               href={`#${key}`}
               onClick={() => {
-                if (key === "workout") setHistoryEdit(null);
+                if (key === "workout" || key === "buddy") setHistoryEdit(null);
               }}
               className={tab === key ? "active" : ""}
             >
@@ -1520,6 +1774,8 @@ function App() {
                       history: "Look back at the work you’ve put in.",
                       equipment: "Your equipment. Your exercise possibilities.",
                       settings: "Make this training space your own.",
+                      buddy:
+                        "Review your choices. Build a draft. Make it yours.",
                     } as Record<string, string>
                   )[tab]
                 }
@@ -1845,6 +2101,21 @@ function App() {
               </div>
             </>
           )}
+          {tab === "buddy" && (
+            <WorkoutBuddy
+              state={state}
+              exercises={exercises}
+              update={update}
+              notify={notify}
+              guide={setDetail}
+              pick={openPicker}
+              initialSetup={buddySetup}
+              editor={(ms, edit, context) =>
+                renderMovements(ms, edit, true, context)
+              }
+              accept={acceptBuddyDraft}
+            />
+          )}
           {tab === "library" && renderLibrary()}
           {tab === "plans" && (
             <>
@@ -2007,6 +2278,20 @@ function App() {
                                   )}{" "}
                                   sets
                                 </p>
+                                <button
+                                  className="secondary"
+                                  disabled={d.restDay}
+                                  onClick={() =>
+                                    openBuddy({
+                                      mode: "adapt",
+                                      sourcePlanId: currentPlan.id,
+                                      sourceDayId: d.id,
+                                      sourceScope: "plan",
+                                    })
+                                  }
+                                >
+                                  Draft with Buddy
+                                </button>
                                 <div className="actions">
                                   <button
                                     className="secondary"
@@ -2162,6 +2447,20 @@ function App() {
                             }
                           >
                             Start
+                          </button>
+                          <button
+                            className="secondary"
+                            disabled={currentDay.restDay}
+                            onClick={() =>
+                              openBuddy({
+                                mode: "adapt",
+                                sourcePlanId: currentPlan.id,
+                                sourceDayId: currentDay.id,
+                                sourceScope: "plan",
+                              })
+                            }
+                          >
+                            Draft with Buddy
                           </button>
                           <label className="field">
                             Day notes
@@ -2950,6 +3249,10 @@ function App() {
           {tab === "settings" && (
             <div className="settings-grid">
               <div className="more-links">
+                <a href="#buddy">
+                  <Star size={18} />
+                  Workout Buddy
+                </a>
                 <a href="#history">
                   <History size={18} />
                   Workout history
@@ -3370,6 +3673,15 @@ function App() {
             </button>
             <span className="eyebrow">EXERCISE GUIDE · {detail.level}</span>
             <h2>{detail.name}</h2>
+            <button
+              className="secondary"
+              onClick={() => {
+                setDetail(null);
+                openBuddy({ mode: "suggest", exerciseId: detail.id });
+              }}
+            >
+              Find alternatives with Buddy
+            </button>
             <div className="tags">
               {detail.primaryMuscles.map((m) => (
                 <span className="tag green" key={m}>
@@ -3718,11 +4030,13 @@ function NumberInput({
   value,
   onChange,
   step,
+  onClear,
 }: {
   label: string;
-  value: number;
+  value: number | undefined;
   onChange: (n: number) => void;
   step: number;
+  onClear?: () => void;
 }) {
   return (
     <input
@@ -3734,8 +4048,13 @@ function NumberInput({
       step={step}
       inputMode={step === 1 ? "numeric" : "decimal"}
       onFocus={(e) => e.currentTarget.select()}
-      value={Number(value.toFixed(2))}
+      value={value === undefined ? "" : Number(value.toFixed(2))}
+      placeholder={value === undefined ? "Choose" : undefined}
       onChange={(e) => {
+        if (e.target.value === "" && onClear) {
+          onClear();
+          return;
+        }
         const n = Number(e.target.value);
         if (Number.isFinite(n)) onChange(Math.max(0, Math.min(100000, n)));
       }}

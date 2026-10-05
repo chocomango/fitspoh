@@ -71,6 +71,8 @@ const set = (s) =>
   ["working", "warmup", "drop", "failure"].includes(s.type) &&
   typeof s.done === "boolean" &&
   (s.skipped === undefined || typeof s.skipped === "boolean") &&
+  (s.needsLoad === undefined || typeof s.needsLoad === "boolean") &&
+  !(s.done && s.needsLoad) &&
   (s.effort === undefined || numeric(s.effort, 10)) &&
   (s.effortKind === undefined || ["RIR", "RPE"].includes(s.effortKind));
 const movement = (m) =>
@@ -88,6 +90,57 @@ const movement = (m) =>
   numeric(m.repMax, 10000) &&
   m.repMax >= m.repMin;
 const movements = (m) => Array.isArray(m) && m.every(movement) && unique(m);
+const day = (d) =>
+  d &&
+  id(d.id) &&
+  str(d.name) &&
+  movements(d.movements) &&
+  (d.notes === undefined || str(d.notes)) &&
+  (d.restDay === undefined || typeof d.restDay === "boolean");
+const buddyPreferences = (p) =>
+  p &&
+  ["suggest", "adapt", "create"].includes(p.mode) &&
+  ["routine", "plan"].includes(p.output) &&
+  ["beginner", "intermediate", "advanced"].includes(p.experience) &&
+  ["full-body", "upper", "lower", "push", "pull", "legs"].includes(p.focus) &&
+  [20, 40, 60].includes(p.minutes) &&
+  [2, 3, 4, 5].includes(p.frequency) &&
+  typeof p.avoidOverhead === "boolean" &&
+  typeof p.avoidGrip === "boolean" &&
+  Array.isArray(p.exclusions) &&
+  p.exclusions.every(id) &&
+  (p.equipmentIds === undefined ||
+    (Array.isArray(p.equipmentIds) && p.equipmentIds.every(id))) &&
+  ["exerciseId", "sourcePlanId", "sourceDayId", "sourceMovementId"].every(
+    (key) => p[key] === undefined || id(p[key]),
+  ) &&
+  (p.muscle === undefined || str(p.muscle)) &&
+  (p.sourceScope === undefined || ["plan", "active"].includes(p.sourceScope));
+const buddyDraft = (d) =>
+  d &&
+  id(d.id) &&
+  str(d.name) &&
+  Array.isArray(d.days) &&
+  d.days.every(day) &&
+  unique(d.days) &&
+  strings(d.changes) &&
+  strings(d.warnings) &&
+  d.reasons &&
+  typeof d.reasons === "object" &&
+  !Array.isArray(d.reasons) &&
+  Object.values(d.reasons).every(str) &&
+  Array.isArray(d.suggestions) &&
+  d.suggestions.length <= 3 &&
+  d.suggestions.every(
+    (s) =>
+      s && id(s.exerciseId) && str(s.reason) && typeof s.newToYou === "boolean",
+  ) &&
+  (d.source === undefined ||
+    (d.source &&
+      day(d.source.snapshot) &&
+      ["planId", "dayId", "movementId", "workoutId"].every(
+        (key) => d.source[key] === undefined || id(d.source[key]),
+      )));
 const workout = (w) =>
   w &&
   id(w.id) &&
@@ -238,6 +291,13 @@ export function validateBackup(input, exerciseIds = []) {
     throw Error("Invalid settings.");
   if (s.timer !== null && !numeric(s.timer, 1e15))
     throw Error("Invalid timer.");
+  if (
+    s.buddy !== undefined &&
+    (!s.buddy ||
+      !buddyPreferences(s.buddy.preferences) ||
+      (s.buddy.draft !== undefined && !buddyDraft(s.buddy.draft)))
+  )
+    throw Error("Invalid Workout Buddy data.");
   for (const key of ["plans", "workouts", "body", "equipment", "custom"])
     if (!unique(s[key])) throw Error(`Duplicate IDs in ${key}.`);
   if (exerciseIds.length) {
@@ -246,9 +306,12 @@ export function validateBackup(input, exerciseIds = []) {
       ...s.workouts,
       ...(s.active ? [s.active] : []),
       ...s.plans.flatMap((p) => p.days),
+      ...(s.buddy?.draft?.days ?? []),
     ];
     if (all.some((w) => w.movements.some((m) => !known.has(m.exerciseId))))
       throw Error("Backup references an unknown exercise.");
+    if (s.buddy?.draft?.suggestions.some((x) => !known.has(x.exerciseId)))
+      throw Error("Buddy suggestion references an unknown exercise.");
   }
   return structuredClone(s);
 }
