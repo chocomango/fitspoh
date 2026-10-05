@@ -167,12 +167,11 @@ test("backup accepts full body stats, round trips independently, rejects corrupt
     validateBackup({ ...original, body: [original.body[0], original.body[0]] }),
   );
 });
-test("library has complete guides and forty supported schematic movements", () => {
+test("library has complete written guides and position photos", () => {
   const exercises = JSON.parse(
     fs.readFileSync(new URL("../src/data/exercises.json", import.meta.url)),
   );
   assert.ok(exercises.length >= 200);
-  assert.equal(exercises.filter((e) => e.animation).length, 40);
   assert.equal(new Set(exercises.map((e) => e.id)).size, exercises.length);
   for (const e of exercises) {
     assert.ok(

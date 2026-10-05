@@ -58,7 +58,7 @@ import {
   toStoredDistance,
   validateBackup,
 } from "./domain.mjs";
-import { Chart, MovementDemo, Empty } from "./components";
+import { Chart, Empty } from "./components";
 import { CornerFriend, CornerFriends } from "./CornerFriends";
 import exerciseData from "./data/exercises.json";
 import "./style.css";
@@ -709,9 +709,7 @@ function App() {
           <article className="exercise-card" key={e.id}>
             <button className="exercise-image" onClick={() => setDetail(e)}>
               <ExerciseImage exercise={e} />
-              <span className="image-tag">
-                {e.animation ? "Movement demo" : e.category}
-              </span>
+              <span className="image-tag">{e.category}</span>
             </button>
             <div className="exercise-card-body">
               <div className="row">
@@ -1614,7 +1612,7 @@ function App() {
                   label="YOUR EXERCISE LIBRARY"
                   value={String(exercises.length)}
                   unit="exercises"
-                  detail={`${exercises.filter((e) => e.animation).length} movement demonstrations`}
+                  detail={"Position photos and step-by-step guides"}
                   icon={<ClipboardList size={19} />}
                 />
               </div>
@@ -3236,8 +3234,7 @@ function App() {
                   <h2>About the exercise library</h2>
                   <p>
                     Exercise descriptions and position photos are adapted from
-                    Free Exercise DB (Unlicense). Movement schematics are
-                    original, simplified illustrations.
+                    Free Exercise DB (Unlicense).
                   </p>
                   <a
                     className="source-link"
@@ -3385,7 +3382,6 @@ function App() {
                 </span>
               ))}
             </div>
-            {detail.animation && <MovementDemo kind={detail.animation} />}
             <div className="position-images">
               {detail.images.map((img, i) => (
                 <figure key={img}>

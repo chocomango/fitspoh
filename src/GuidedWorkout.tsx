@@ -8,7 +8,6 @@ import {
   storedLoad,
   loadUnit,
 } from "./domain.mjs";
-import { MovementDemo } from "./components";
 
 type Props = {
   state: State;
@@ -324,7 +323,6 @@ export function GuidedWorkout({
           )}
           <details>
             <summary>Technique & notes</summary>
-            {e.animation && <MovementDemo kind={e.animation} />}
             <ol>
               {e.instructions.map((text, i) => (
                 <li key={i}>{text}</li>

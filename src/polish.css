@@ -475,19 +475,6 @@ html[data-theme="sumikko"] {
 [data-theme="sumikko"] .detail-modal ul {
   color: #6a6356;
 }
-[data-theme="sumikko"] .demo {
-  background: linear-gradient(130deg, #ecf1e6, #f3ebdf);
-  border-color: #d4ddc5;
-}
-[data-theme="sumikko"] .demo svg polyline {
-  stroke: #819c78;
-}
-[data-theme="sumikko"] .demo svg circle {
-  fill: #adc59d;
-}
-[data-theme="sumikko"] .demo svg text {
-  fill: #796f5d;
-}
 [data-theme="sumikko"] .position-images figcaption {
   background: #e9e2d3;
   color: #776b55;

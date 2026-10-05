@@ -108,7 +108,7 @@ test("plans, workouts, body stats, backups, and offline recovery on GitHub Pages
   await context.setOffline(false);
   expect(errors).toEqual([]);
 });
-test("mobile layout, equipment filtering, and animated guide", async ({
+test("mobile layout, equipment filtering, and photo guide", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -123,10 +123,10 @@ test("mobile layout, equipment filtering, and animated guide", async ({
   await expect(
     page.getByRole("heading", { name: "Barbell Curl", exact: true, level: 2 }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Play", exact: true }).click();
-  await expect(
-    page.getByRole("button", { name: "Pause", exact: true }),
-  ).toBeVisible();
+  await expect(page.locator(".detail-modal .position-images img")).toHaveCount(
+    2,
+  );
+  await expect(page.locator(".detail-modal .demo")).toHaveCount(0);
   await page.getByRole("button", { name: "Close exercise guide" }).click();
   await page.screenshot({ path: ".cache/mobile-library.png", fullPage: true });
   expect(
