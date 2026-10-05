@@ -48,6 +48,9 @@ import {
   volume,
   rollingWeight,
   toDisplayWeight,
+  displayLoad,
+  storedLoad,
+  loadUnit,
   toStoredWeight,
   toDisplayLength,
   toStoredLength,
@@ -62,6 +65,7 @@ import "./style.css";
 import "./polish.css";
 import "./guided.css";
 import { GuidedWorkout } from "./GuidedWorkout";
+import { installPersonalPlan, PERSONAL_TEMPLATE } from "./prebuilt-plan.mjs";
 const library = exerciseData as Exercise[];
 const NAV = [
   ["dashboard", "Overview", LayoutDashboard],
@@ -341,11 +345,14 @@ function App() {
                   : t.distance,
               id: uid(),
               done: false,
-              skipped: false,
+              skipped: m.optional ?? false,
             })),
           };
         }),
-        notes: "",
+        notes:
+          state.plans
+            .find((p) => p.id === planId)
+            ?.days.find((d) => d.id === dayId)?.notes ?? "",
         planId,
         dayId,
         guided: { phase: "intro", overview: !movements.length },
@@ -353,6 +360,38 @@ function App() {
       s.timer = null;
     });
     go("workout");
+  };
+  const takeRestDay = (plan: Plan, day: Day) => {
+    if (state.active) {
+      notify("Finish your active workout before advancing the plan.");
+      return;
+    }
+    update((s) => {
+      const p = s.plans.find((p) => p.id === plan.id);
+      if (p)
+        p.next = (p.days.findIndex((d) => d.id === day.id) + 1) % p.days.length;
+    });
+    notify("Rest day acknowledged. Start the next workout whenever recovered.");
+  };
+  const addPersonalPlan = () => {
+    // Prepare outside the React updater so choosing the plan does not depend on updater scheduling.
+    const next = structuredClone(state);
+    const planId = installPersonalPlan(next);
+    update((s) => {
+      if (!s.plans.some((p) => p.templateId === PERSONAL_TEMPLATE)) {
+        const plan = next.plans.find((p) => p.id === planId)!;
+        s.plans.push(plan);
+        next.custom.forEach((e) => {
+          if (!s.custom.some((x) => x.id === e.id)) s.custom.push(e);
+        });
+        next.equipment.forEach((e) => {
+          if (!s.equipment.some((x) => x.id === e.id)) s.equipment.push(e);
+        });
+      }
+    });
+    setSelectedPlan(planId);
+    setSelectedDay(null);
+    go("plans");
   };
   const currentPlan = state.plans.find((p) => p.id === selectedPlan),
     currentDay = currentPlan?.days.find((d) => d.id === selectedDay);
@@ -752,6 +791,25 @@ function App() {
         ?.movements.find((x) => x.exerciseId === m.exerciseId);
       return (
         <article className="movement-card" key={m.id}>
+          {m.optional && (
+            <p className="tag">Optional — include only when appropriate</p>
+          )}
+          {isPlan && (
+            <label className="field">
+              <span>
+                <input
+                  type="checkbox"
+                  checked={m.optional ?? false}
+                  onChange={(ev) =>
+                    edit((ms) => {
+                      ms[index].optional = ev.target.checked;
+                    })
+                  }
+                />{" "}
+                Optional: skip by default
+              </span>
+            </label>
+          )}
           {m.sets.some((t) => t.skipped) && (
             <p className="tag">
               Skipped sets: {m.sets.filter((t) => t.skipped && !t.done).length}
@@ -780,11 +838,13 @@ function App() {
                   .join(" + ") || "Bodyweight"}{" "}
                 ·{" "}
                 {e.mode === "strength"
-                  ? /dumbbell/i.test(e.equipment)
-                    ? `Weight per hand (${state.settings.weight})`
-                    : /assisted/i.test(e.name)
-                      ? `Assistance (${state.settings.weight})`
-                      : `Total load (${state.settings.weight})`
+                  ? e.loadKind
+                    ? `Record ${loadUnit(state.settings.weight, e)}`
+                    : /dumbbell/i.test(e.equipment)
+                      ? `Weight per hand (${state.settings.weight})`
+                      : /assisted/i.test(e.name)
+                        ? `Assistance (${state.settings.weight})`
+                        : `Total load (${state.settings.weight})`
                   : e.mode === "cardio"
                     ? "Time and distance"
                     : "Duration"}
@@ -888,7 +948,9 @@ function App() {
               <span>{isPlan ? "TYPE" : "PREVIOUS"}</span>
               {e.mode === "strength" ? (
                 <>
-                  <span>{state.settings.weight.toUpperCase()}</span>
+                  <span>
+                    {loadUnit(state.settings.weight, e).toUpperCase()}
+                  </span>
                   <span>REPS</span>
                 </>
               ) : (
@@ -955,7 +1017,7 @@ function App() {
                       ? s.type
                       : previous
                         ? e.mode === "strength"
-                          ? `${fmt(toDisplayWeight(previous.weight, state.settings.weight))} × ${previous.reps}`
+                          ? `${fmt(displayLoad(previous.weight, state.settings.weight, e))} × ${previous.reps}`
                           : `${Math.floor(previous.seconds / 60)}:${String(previous.seconds % 60).padStart(2, "0")}`
                         : "—"}
                   </button>
@@ -963,13 +1025,14 @@ function App() {
                     <>
                       <NumberInput
                         label={`Set ${i + 1} weight`}
-                        value={toDisplayWeight(s.weight, state.settings.weight)}
+                        value={displayLoad(s.weight, state.settings.weight, e)}
                         step={0.5}
                         onChange={(v) =>
                           edit((ms) => {
-                            ms[index].sets[i].weight = toStoredWeight(
+                            ms[index].sets[i].weight = storedLoad(
                               v,
                               state.settings.weight,
+                              e,
                             );
                           })
                         }
@@ -1079,7 +1142,7 @@ function App() {
                                 s.reps > record.reps))
                           )
                             notify(
-                              `New personal record: ${e.name}, ${fmt(toDisplayWeight(s.weight, state.settings.weight))} ${state.settings.weight} × ${s.reps}!`,
+                              `New personal record: ${e.name}, ${fmt(displayLoad(s.weight, state.settings.weight, e))} ${loadUnit(state.settings.weight, e)} × ${s.reps}!`,
                             );
                         }
                         if (!s.done && m.rest && !historyEdit) {
@@ -1275,7 +1338,8 @@ function App() {
         "Exercise",
         "Set type",
         "Completed",
-        "Weight (kg)",
+        "Recorded load",
+        "Load convention",
         "Reps",
         "Duration (sec)",
         "Distance (km)",
@@ -1291,6 +1355,7 @@ function App() {
             s.type,
             s.done,
             s.weight,
+            loadUnit("kg", exercise(m.exerciseId)),
             s.reps,
             s.seconds,
             s.distance,
@@ -1586,6 +1651,13 @@ function App() {
                             {d.movements.reduce((n, m) => n + m.sets.length, 0)}{" "}
                             planned sets
                           </p>
+                          {d.notes && <p>{d.notes}</p>}
+                          {p.notes && (
+                            <details>
+                              <summary>Plan & recovery notes</summary>
+                              <p>{p.notes}</p>
+                            </details>
+                          )}
                           <div className="next-exercises">
                             {d.movements.slice(0, 3).map((m) => (
                               <span key={m.id}>
@@ -1595,13 +1667,30 @@ function App() {
                           </div>
                           <button
                             className="primary"
-                            disabled={!d.movements.length}
+                            disabled={!d.restDay && !d.movements.length}
                             onClick={() =>
-                              launch(d.name, d.movements, p.id, d.id)
+                              d.restDay
+                                ? takeRestDay(p, d)
+                                : launch(d.name, d.movements, p.id, d.id)
                             }
                           >
-                            Start this workout <ArrowRight size={16} />
+                            {d.restDay
+                              ? "Rest / activity"
+                              : "Start this workout"}{" "}
+                            <ArrowRight size={16} />
                           </button>
+                          {!d.restDay && (
+                            <button
+                              className="secondary"
+                              onClick={() =>
+                                notify(
+                                  "Take extra rest today. Your next planned workout stays the same.",
+                                )
+                              }
+                            >
+                              Take extra rest
+                            </button>
+                          )}
                         </>
                       );
                     })()
@@ -1761,6 +1850,22 @@ function App() {
           {tab === "library" && renderLibrary()}
           {tab === "plans" && (
             <>
+              {!currentDay && (
+                <section className="panel">
+                  <span className="eyebrow">YOUR PREBUILT PLAN</span>
+                  <h2>Upper / Lower / Push / Pull / Legs</h2>
+                  <p>
+                    Your working weights, progression notes, two flexible rest
+                    days, and optional exercises. No fixed calendar or automatic
+                    load increases.
+                  </p>
+                  <button className="primary" onClick={addPersonalPlan}>
+                    {state.plans.some((p) => p.templateId === PERSONAL_TEMPLATE)
+                      ? "Open my prebuilt plan"
+                      : "Add my prebuilt plan"}
+                  </button>
+                </section>
+              )}
               {!state.plans.length ? (
                 <Empty
                   title="A plan you’ll come back to"
@@ -1835,6 +1940,7 @@ function App() {
                                   update((s) => {
                                     const p = structuredClone(currentPlan);
                                     p.id = uid();
+                                    delete p.templateId;
                                     p.name += " (copy)";
                                     p.days = p.days.map((d) => ({
                                       ...d,
@@ -1876,6 +1982,9 @@ function App() {
                               </button>
                             </div>
                           </div>
+                          {currentPlan.notes && (
+                            <p className="plan-notes">{currentPlan.notes}</p>
+                          )}
                           <div className="day-grid">
                             {currentPlan.days.map((d, i) => (
                               <article
@@ -1891,6 +2000,7 @@ function App() {
                                     : ""}
                                 </span>
                                 <h3>{d.name}</h3>
+                                {d.notes && <p>{d.notes}</p>}
                                 <p>
                                   {d.movements.length} exercises ·{" "}
                                   {d.movements.reduce(
@@ -1908,18 +2018,20 @@ function App() {
                                   </button>
                                   <button
                                     className="primary"
-                                    disabled={!d.movements.length}
+                                    disabled={!d.restDay && !d.movements.length}
                                     onClick={() =>
-                                      launch(
-                                        d.name,
-                                        d.movements,
-                                        currentPlan.id,
-                                        d.id,
-                                      )
+                                      d.restDay
+                                        ? takeRestDay(currentPlan, d)
+                                        : launch(
+                                            d.name,
+                                            d.movements,
+                                            currentPlan.id,
+                                            d.id,
+                                          )
                                     }
                                   >
                                     <PlayIcon />
-                                    Start
+                                    {d.restDay ? "Rest / activity" : "Start"}
                                   </button>
                                   <button
                                     className="icon-button"
@@ -2053,6 +2165,24 @@ function App() {
                           >
                             Start
                           </button>
+                          <label className="field">
+                            Day notes
+                            <textarea
+                              value={currentDay.notes ?? ""}
+                              onChange={(ev) =>
+                                modifyDay((d) => {
+                                  d.notes = ev.target.value;
+                                })
+                              }
+                            />
+                          </label>
+                          {currentDay.restDay && (
+                            <p>
+                              Rest day — acknowledge it from the plan or Home
+                              whenever ready. Extra rest never changes the
+                              calendar.
+                            </p>
+                          )}
                           {renderMovements(
                             currentDay.movements,
                             (fn) => modifyDay((d) => fn(d.movements)),
@@ -2613,7 +2743,7 @@ function App() {
                         <span>{r.exercise.name}</span>
                         <strong>
                           {r.weight
-                            ? `${fmt(toDisplayWeight(r.weight, state.settings.weight))} ${state.settings.weight} × `
+                            ? `${fmt(displayLoad(r.weight, state.settings.weight, r.exercise))} ${loadUnit(state.settings.weight, r.exercise)} × `
                             : ""}
                           {r.reps} reps
                         </strong>
@@ -3341,9 +3471,10 @@ function App() {
                             date: w.started,
                             value:
                               detail.mode === "strength"
-                                ? toDisplayWeight(
+                                ? displayLoad(
                                     Math.max(...sets.map((s) => s.weight)),
                                     state.settings.weight,
+                                    detail,
                                   )
                                 : Math.max(...sets.map((s) => s.seconds)) / 60,
                           },
@@ -3352,7 +3483,7 @@ function App() {
                   })}
                   label={
                     detail.mode === "strength"
-                      ? state.settings.weight
+                      ? loadUnit(state.settings.weight, detail)
                       : "minutes"
                   }
                 />

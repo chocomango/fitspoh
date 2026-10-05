@@ -3,18 +3,27 @@ export const toDisplayWeight = (n, unit) =>
   unit === "lb" ? n * 2.2046226218 : n;
 export const toStoredWeight = (n, unit) =>
   unit === "lb" ? n / 2.2046226218 : n;
+export const displayLoad = (n, unit, exercise) =>
+  exercise?.loadKind === "stack" ? n : toDisplayWeight(n, unit);
+export const storedLoad = (n, unit, exercise) =>
+  exercise?.loadKind === "stack" ? n : toStoredWeight(n, unit);
+export const loadUnit = (unit, exercise) =>
+  exercise?.loadKind === "stack"
+    ? "stack setting"
+    : `${unit}${exercise?.loadKind === "per-side" ? " per side" : exercise?.loadKind === "plates" ? " plates" : ""}`;
 export const toDisplayLength = (n, unit) => (unit === "in" ? n / 2.54 : n);
 export const toStoredLength = (n, unit) => (unit === "in" ? n * 2.54 : n);
 export const toDisplayDistance = (n, unit) =>
   unit === "mi" ? n / 1.609344 : n;
 export const toStoredDistance = (n, unit) => (unit === "mi" ? n * 1.609344 : n);
-/** @param {any} workout @param {((id:string)=>{mode:string,name:string}|undefined)|null} [lookup] */
+/** @param {any} workout @param {((id:string)=>{mode:string,name:string,loadKind?:string}|undefined)|null} [lookup] */
 export const volume = (workout, lookup = null) =>
   workout.movements.reduce(
     (sum, m) =>
       sum +
       (lookup &&
       (lookup(m.exerciseId)?.mode !== "strength" ||
+        lookup(m.exerciseId)?.loadKind ||
         /assisted/i.test(lookup(m.exerciseId)?.name ?? ""))
         ? 0
         : m.sets
@@ -73,6 +82,7 @@ const movement = (m) =>
   unique(m.sets) &&
   numeric(m.rest, 3600) &&
   str(m.notes) &&
+  (m.optional === undefined || typeof m.optional === "boolean") &&
   str(m.superset) &&
   numeric(m.repMin, 10000) &&
   numeric(m.repMax, 10000) &&
@@ -131,11 +141,19 @@ export function validateBackup(input, exerciseIds = []) {
         p &&
         id(p.id) &&
         str(p.name) &&
+        (p.notes === undefined || str(p.notes)) &&
+        (p.templateId === undefined || id(p.templateId)) &&
         Number.isInteger(p.next) &&
         p.next >= 0 &&
         Array.isArray(p.days) &&
         p.days.every(
-          (d) => d && id(d.id) && str(d.name) && movements(d.movements),
+          (d) =>
+            d &&
+            id(d.id) &&
+            str(d.name) &&
+            movements(d.movements) &&
+            (d.notes === undefined || str(d.notes)) &&
+            (d.restDay === undefined || typeof d.restDay === "boolean"),
         ) &&
         unique(p.days),
     )
@@ -189,6 +207,8 @@ export function validateBackup(input, exerciseIds = []) {
         strings(e.images) &&
         strings(e.cues) &&
         strings(e.mistakes) &&
+        (e.loadKind === undefined ||
+          ["per-side", "stack", "plates"].includes(e.loadKind)) &&
         ["strength", "duration", "cardio"].includes(e.mode) &&
         (e.animation === undefined || str(e.animation)),
     )

@@ -2,10 +2,11 @@ import { useEffect } from "react";
 import type { Exercise, State, Workout, SetLog } from "./types";
 import { currentStep, workoutQueue } from "./guided";
 import {
-  toDisplayWeight,
-  toStoredWeight,
   toDisplayDistance,
   toStoredDistance,
+  displayLoad,
+  storedLoad,
+  loadUnit,
 } from "./domain.mjs";
 import { MovementDemo } from "./components";
 
@@ -17,7 +18,7 @@ type Props = {
   notify: (message: string) => void;
   finish: () => void;
 };
-const number = (n: number) => Number(n.toFixed(1));
+const number = (n: number) => Number(n.toFixed(2));
 export function GuidedWorkout({
   state,
   now,
@@ -74,10 +75,10 @@ export function GuidedWorkout({
         };
       s.timer = null;
     });
-  const result = (set: SetLog, mode = e?.mode) =>
-    mode === "strength"
-      ? `${number(toDisplayWeight(set.weight, state.settings.weight))} ${state.settings.weight} × ${set.reps} reps`
-      : `${set.seconds}s${mode === "cardio" ? ` · ${number(toDisplayDistance(set.distance, state.settings.distance))} ${state.settings.distance}` : ""}`;
+  const result = (set: SetLog, metadata = e) =>
+    metadata?.mode === "strength"
+      ? `${number(displayLoad(set.weight, state.settings.weight, metadata))} ${loadUnit(state.settings.weight, metadata)} × ${set.reps} reps`
+      : `${set.seconds}s${metadata?.mode === "cardio" ? ` · ${number(toDisplayDistance(set.distance, state.settings.distance))} ${state.settings.distance}` : ""}`;
   const complete = () => {
     if (!step || !e) return;
     const oldBest = Math.max(
@@ -149,7 +150,7 @@ export function GuidedWorkout({
   ) => {
     if (!step) return null;
     let value = step.set[key] ?? 0;
-    if (key === "weight") value = toDisplayWeight(value, state.settings.weight);
+    if (key === "weight") value = displayLoad(value, state.settings.weight, e);
     if (key === "distance")
       value = toDisplayDistance(value, state.settings.distance);
     return (
@@ -191,7 +192,7 @@ export function GuidedWorkout({
               };
               target[key] =
                 key === "weight"
-                  ? toStoredWeight(raw, state.settings.weight)
+                  ? storedLoad(raw, state.settings.weight, e)
                   : key === "distance"
                     ? toStoredDistance(raw, state.settings.distance)
                     : raw;
@@ -219,6 +220,12 @@ export function GuidedWorkout({
           Overview
         </button>
       </div>
+      {w.notes && (
+        <details>
+          <summary>Day & recovery notes</summary>
+          <p>{w.notes}</p>
+        </details>
+      )}
       {summary ? (
         <>
           <h2>Workout review</h2>
@@ -233,7 +240,7 @@ export function GuidedWorkout({
                 <p key={s.id}>
                   Set {i + 1}:{" "}
                   {s.done
-                    ? result(s, lookup(m.exerciseId)?.mode)
+                    ? result(s, lookup(m.exerciseId))
                     : s.skipped
                       ? "Skipped"
                       : "Unfinished"}
@@ -299,7 +306,7 @@ export function GuidedWorkout({
                       s.done && (
                         <p key={s.id}>
                           Set {i + 1}:{" "}
-                          {result(s, lookup(last.movement.exerciseId)?.mode)}
+                          {result(s, lookup(last.movement.exerciseId))}
                         </p>
                       ),
                   )}
@@ -336,6 +343,12 @@ export function GuidedWorkout({
                 <p key={i}>{text}</p>
               ))}
           </details>
+          {step.movement.notes && (
+            <details open={phase === "intro"}>
+              <summary>Targets & progression</summary>
+              <p>{step.movement.notes}</p>
+            </details>
+          )}
           <div className="guided-last">
             <strong>Last time</strong>
             {previous ? (
@@ -355,7 +368,7 @@ export function GuidedWorkout({
             <div className="guided-rest">
               <p>
                 {last
-                  ? `Completed: ${result(last.set, lookup(last.movement.exerciseId)?.mode)}`
+                  ? `Completed: ${result(last.set, lookup(last.movement.exerciseId))}`
                   : "Take a breather"}
               </p>
               <div
@@ -408,11 +421,13 @@ export function GuidedWorkout({
               </p>
               {e.mode === "strength" && (
                 <p>
-                  {/assisted/i.test(e.name)
-                    ? "Log the assistance weight."
-                    : /dumbbell/i.test(e.equipment)
-                      ? "Log the weight per hand."
-                      : "Log the total load."}
+                  {e.loadKind
+                    ? `Record ${loadUnit(state.settings.weight, e)}. See Targets & progression for the convention.`
+                    : /assisted/i.test(e.name)
+                      ? "Log the assistance weight."
+                      : /dumbbell/i.test(e.equipment)
+                        ? "Log the weight per hand."
+                        : "Log the total load."}
                 </p>
               )}
               <div className="guided-inputs">
@@ -420,7 +435,7 @@ export function GuidedWorkout({
                   <>
                     {field(
                       "weight",
-                      `Weight (${state.settings.weight})`,
+                      `Weight (${loadUnit(state.settings.weight, e)})`,
                       1000000,
                     )}
                     {field("reps", "Reps", 10000)}

@@ -20,6 +20,7 @@ export type Exercise = {
   animation?: string;
   cues: string[];
   mistakes: string[];
+  loadKind?: "per-side" | "stack" | "plates";
 };
 export type SetLog = {
   id: string;
@@ -42,9 +43,23 @@ export type Movement = {
   superset: string;
   repMin: number;
   repMax: number;
+  optional?: boolean;
 };
-export type Day = { id: string; name: string; movements: Movement[] };
-export type Plan = { id: string; name: string; days: Day[]; next: number };
+export type Day = {
+  id: string;
+  name: string;
+  movements: Movement[];
+  restDay?: boolean;
+  notes?: string;
+};
+export type Plan = {
+  id: string;
+  name: string;
+  days: Day[];
+  next: number;
+  notes?: string;
+  templateId?: string;
+};
 export type Workout = {
   id: string;
   name: string;

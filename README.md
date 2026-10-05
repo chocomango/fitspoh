@@ -21,6 +21,10 @@ For the production preview, run `npm run build` then `npm run preview` and open 
 
 ## Your first workout
 
+Under **Plans**, tap **Add my prebuilt plan** for the personal Upper / Lower / Rest / Push / Pull / Legs / Rest sequence. It includes the supplied starting weights and progression/recovery notes without creating historical workout records. Adding it again opens the same editable plan. Rest days advance only when acknowledged; **Take extra rest** leaves the next workout unchanged. Optional exercises start skipped and can be included through **Overview → Guide this exercise**. Unknown loads remain zero with an explicit note to choose a load; placeholder set targets are labeled in the notes.
+
+Trap-bar loads are stored per side, lateral-machine settings stay unitless even when switching to pounds, and linear-leg-press loads are plates only (the 53 kg sled is in the notes). These conventions appear in the log, guides, records, and CSV; they are excluded from aggregate total-load volume. Historical bests and the next hip-thrust target remain notes, with no automatic weight increases.
+
 1. Open **My gym** (under **More** on a phone). Confirm the equipment you have seen at Anytime Fitness Bedok South CC. Publicly listed categories are not treated as a verified machine inventory.
 2. Open **My plans**, create a plan, add workout days, then choose exercises and target sets, loads, rep ranges, and rest periods. Optional A/B/C groups form supersets or circuits; the rest timer starts once the round is complete.
 3. Start a workout day to open the phone companion: exercise introduction, one set at a time, rest, then the next exercise. The first set uses the corresponding completed set from the last session when available; otherwise it uses the plan. Later sets keep the weight just used with their planned rep targets. “Last time” stays visible for comparison. Prefilled sets are not counted until completed.
