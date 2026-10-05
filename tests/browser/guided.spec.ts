@@ -3,18 +3,23 @@ import { test, expect, type Page } from "@playwright/test";
 async function seed(page: Page, grouped = false, variant = "strength") {
   await page.goto("");
   await expect(page.getByText("Saved on this device").first()).toBeAttached();
-  await page.evaluate(
+  const backup = await page.evaluate(
     async ({ grouped, variant }) => {
       const db = await new Promise<IDBDatabase>((resolve, reject) => {
         const req = indexedDB.open("fitspoh", 1);
         req.onsuccess = () => resolve(req.result);
         req.onerror = () => reject(req.error);
       });
-      const tx = db.transaction("journal", "readwrite");
+      const tx = db.transaction("journal", "readonly");
       const store = tx.objectStore("journal");
       const get = store.get("state");
-      get.onsuccess = () => {
-        const s = get.result;
+      const state = await new Promise<any>((resolve, reject) => {
+        get.onsuccess = () => resolve(get.result);
+        get.onerror = () => reject(get.error);
+      });
+      db.close();
+      {
+        const s = state;
         const movement = (id: string, exerciseId: string, count: number) => ({
           id,
           exerciseId,
@@ -99,18 +104,23 @@ async function seed(page: Page, grouped = false, variant = "strength") {
           },
         ];
         s.active = null;
-        store.put(s, "state");
-      };
-      await new Promise<void>((resolve, reject) => {
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-      db.close();
+        return s;
+      }
     },
     { grouped, variant },
   );
+  await page.locator("input[type=file]").setInputFiles({
+    name: "guided-fixture.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(backup)),
+  });
+  await page
+    .getByRole("button", { name: "Replace and restore", exact: true })
+    .click();
+  await expect(page.locator(".storage-status")).toContainText(
+    "Saved on this device",
+  );
   await page.goto("#plans");
-  await page.reload();
   await page.getByRole("button", { name: "My plan 1 days" }).click();
 }
 
