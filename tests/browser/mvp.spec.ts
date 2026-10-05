@@ -397,6 +397,7 @@ test.describe("dialog and media accessibility", () => {
     await expect(
       page.getByRole("dialog", { name: "Create a training plan", exact: true }),
     ).toBeVisible();
+    await expect(page.getByLabel("Name", { exact: true })).toBeFocused();
     await page.getByRole("button", { name: "Save", exact: true }).focus();
     await page.keyboard.press("Tab");
     await expect(page.getByLabel("Name", { exact: true })).toBeFocused();
