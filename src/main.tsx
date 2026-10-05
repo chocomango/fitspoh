@@ -60,6 +60,8 @@ import { CornerFriend, CornerFriends } from "./CornerFriends";
 import exerciseData from "./data/exercises.json";
 import "./style.css";
 import "./polish.css";
+import "./guided.css";
+import { GuidedWorkout } from "./GuidedWorkout";
 const library = exerciseData as Exercise[];
 const NAV = [
   ["dashboard", "Overview", LayoutDashboard],
@@ -92,6 +94,7 @@ const setTemplate = (): SetLog => ({
   distance: 0,
   type: "working",
   done: false,
+  skipped: false,
 });
 const makeMovement = (e: Exercise): Movement => ({
   id: uid(),
@@ -243,6 +246,9 @@ function App() {
     setLimit(36);
   }, [query, muscle, equipment, gymOnly, favsOnly]);
   useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [selectedDay, tab]);
+  useEffect(() => {
     if (!modal && !picker && !detail && bodyEdit === undefined) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
     const layers = document.querySelectorAll<HTMLElement>(".modal-backdrop");
@@ -318,15 +324,31 @@ function App() {
             sets: m.sets.map((t, i) => ({
               ...t,
               weight:
-                t.weight === 0 ? (previous?.sets[i]?.weight ?? 0) : t.weight,
+                (i === 0 && previous?.sets[0]?.done
+                  ? previous.sets[0].weight
+                  : undefined) ?? t.weight,
+              reps:
+                i === 0 && previous?.sets[0]?.done
+                  ? previous.sets[0].reps
+                  : t.reps,
+              seconds:
+                i === 0 && previous?.sets[0]?.done
+                  ? previous.sets[0].seconds
+                  : t.seconds,
+              distance:
+                i === 0 && previous?.sets[0]?.done
+                  ? previous.sets[0].distance
+                  : t.distance,
               id: uid(),
               done: false,
+              skipped: false,
             })),
           };
         }),
         notes: "",
         planId,
         dayId,
+        guided: { phase: "intro", overview: !movements.length },
       };
       s.timer = null;
     });
@@ -730,6 +752,11 @@ function App() {
         ?.movements.find((x) => x.exerciseId === m.exerciseId);
       return (
         <article className="movement-card" key={m.id}>
+          {m.sets.some((t) => t.skipped) && (
+            <p className="tag">
+              Skipped sets: {m.sets.filter((t) => t.skipped && !t.done).length}
+            </p>
+          )}
           <div className="movement-head">
             <button className="movement-thumb" onClick={() => setDetail(e)}>
               <ExerciseImage exercise={e} />
@@ -764,6 +791,43 @@ function App() {
               </p>
             </div>
             <div className="movement-actions">
+              {!isPlan && !historyEdit && (
+                <>
+                  <button
+                    className="secondary"
+                    onClick={() =>
+                      modifyWorkout((w) => {
+                        m.sets.forEach((t) => {
+                          const target = w.movements
+                            .flatMap((x) => x.sets)
+                            .find((x) => x.id === t.id);
+                          if (target && !target.done) target.skipped = true;
+                        });
+                      })
+                    }
+                  >
+                    Skip exercise
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() =>
+                      modifyWorkout((w) => {
+                        const target = w.movements.find((x) => x.id === m.id);
+                        target?.sets.forEach((t) => {
+                          if (!t.done) t.skipped = false;
+                        });
+                        w.guided = {
+                          setId: target?.sets.find((t) => !t.done)?.id,
+                          phase: "intro",
+                          overview: false,
+                        };
+                      })
+                    }
+                  >
+                    Guide this exercise
+                  </button>
+                </>
+              )}
               <button
                 className="icon-button"
                 disabled={index === 0}
@@ -882,6 +946,7 @@ function App() {
                             ...previous,
                             id: s.id,
                             done: false,
+                            skipped: false,
                           };
                         });
                     }}
@@ -995,6 +1060,7 @@ function App() {
                       else {
                         edit((ms) => {
                           ms[index].sets[i].done = !s.done;
+                          ms[index].sets[i].skipped = false;
                         }, true);
                         if (
                           !s.done &&
@@ -1064,6 +1130,7 @@ function App() {
                       ...s,
                       id: uid(),
                       done: false,
+                      skipped: false,
                     }));
                   })
                 }
@@ -1721,172 +1788,190 @@ function App() {
                 />
               ) : (
                 <>
-                  <div className="plan-tabs">
-                    {state.plans.map((p) => (
-                      <button
-                        key={p.id}
-                        className={`chip ${selectedPlan === p.id ? "selected" : ""}`}
-                        onClick={() => {
-                          setSelectedPlan(p.id);
-                          setSelectedDay(null);
-                        }}
-                      >
-                        {p.name}
-                        <span>{p.days.length} days</span>
-                      </button>
-                    ))}
-                  </div>
+                  {!currentDay && (
+                    <div className="plan-tabs">
+                      {state.plans.map((p) => (
+                        <button
+                          key={p.id}
+                          className={`chip ${selectedPlan === p.id ? "selected" : ""}`}
+                          onClick={() => {
+                            setSelectedPlan(p.id);
+                            setSelectedDay(null);
+                          }}
+                        >
+                          {p.name}
+                          <span>{p.days.length} days</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   {currentPlan ? (
                     <>
-                      <div className="section-title">
-                        <h2>{currentPlan.name}</h2>
-                        <div className="actions">
-                          <button
-                            className="ghost"
-                            onClick={() =>
-                              askName(
-                                "Rename plan",
-                                (name) =>
-                                  update((s) => {
-                                    s.plans.find(
-                                      (p) => p.id === currentPlan.id,
-                                    )!.name = name;
-                                  }),
-                                currentPlan.name,
-                              )
-                            }
-                          >
-                            Rename
-                          </button>
-                          <button
-                            className="ghost"
-                            onClick={() =>
-                              update((s) => {
-                                const p = structuredClone(currentPlan);
-                                p.id = uid();
-                                p.name += " (copy)";
-                                p.days = p.days.map((d) => ({
-                                  ...d,
-                                  id: uid(),
-                                  movements: d.movements.map((m) => ({
-                                    ...m,
-                                    id: uid(),
-                                    sets: m.sets.map((t) => ({
-                                      ...t,
-                                      id: uid(),
-                                    })),
-                                  })),
-                                }));
-                                s.plans.push(p);
-                              })
-                            }
-                          >
-                            Duplicate
-                          </button>
-                          <button
-                            className="ghost"
-                            onClick={() =>
-                              confirm(
-                                "Delete this plan?",
-                                "Your completed workouts will stay in history.",
-                                () => {
-                                  update((s) => {
-                                    s.plans = s.plans.filter(
-                                      (p) => p.id !== currentPlan.id,
-                                    );
-                                  });
-                                  setSelectedPlan(null);
-                                  setSelectedDay(null);
-                                },
-                              )
-                            }
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </div>
-                      <div className="day-grid">
-                        {currentPlan.days.map((d, i) => (
-                          <article
-                            className={`day-card ${selectedDay === d.id ? "chosen" : ""}`}
-                            key={d.id}
-                          >
-                            <span className="eyebrow">
-                              DAY {i + 1}{" "}
-                              {currentPlan.next % currentPlan.days.length === i
-                                ? "· UP NEXT"
-                                : ""}
-                            </span>
-                            <h3>{d.name}</h3>
-                            <p>
-                              {d.movements.length} exercises ·{" "}
-                              {d.movements.reduce(
-                                (n, m) => n + m.sets.length,
-                                0,
-                              )}{" "}
-                              sets
-                            </p>
+                      {!currentDay && (
+                        <>
+                          <div className="section-title">
+                            <h2>{currentPlan.name}</h2>
                             <div className="actions">
                               <button
-                                className="secondary"
-                                onClick={() => setSelectedDay(d.id)}
-                              >
-                                Edit day
-                              </button>
-                              <button
-                                className="primary"
-                                disabled={!d.movements.length}
+                                className="ghost"
                                 onClick={() =>
-                                  launch(
-                                    d.name,
-                                    d.movements,
-                                    currentPlan.id,
-                                    d.id,
+                                  askName(
+                                    "Rename plan",
+                                    (name) =>
+                                      update((s) => {
+                                        s.plans.find(
+                                          (p) => p.id === currentPlan.id,
+                                        )!.name = name;
+                                      }),
+                                    currentPlan.name,
                                   )
                                 }
                               >
-                                <PlayIcon />
-                                Start
+                                Rename
                               </button>
                               <button
-                                className="icon-button"
-                                title="Set as next workout"
+                                className="ghost"
                                 onClick={() =>
                                   update((s) => {
-                                    s.plans.find(
-                                      (p) => p.id === currentPlan.id,
-                                    )!.next = i;
+                                    const p = structuredClone(currentPlan);
+                                    p.id = uid();
+                                    p.name += " (copy)";
+                                    p.days = p.days.map((d) => ({
+                                      ...d,
+                                      id: uid(),
+                                      movements: d.movements.map((m) => ({
+                                        ...m,
+                                        id: uid(),
+                                        sets: m.sets.map((t) => ({
+                                          ...t,
+                                          id: uid(),
+                                        })),
+                                      })),
+                                    }));
+                                    s.plans.push(p);
                                   })
                                 }
                               >
-                                <ArrowRight size={15} />
+                                Duplicate
+                              </button>
+                              <button
+                                className="ghost"
+                                onClick={() =>
+                                  confirm(
+                                    "Delete this plan?",
+                                    "Your completed workouts will stay in history.",
+                                    () => {
+                                      update((s) => {
+                                        s.plans = s.plans.filter(
+                                          (p) => p.id !== currentPlan.id,
+                                        );
+                                      });
+                                      setSelectedPlan(null);
+                                      setSelectedDay(null);
+                                    },
+                                  )
+                                }
+                              >
+                                <Trash2 size={16} />
                               </button>
                             </div>
-                          </article>
-                        ))}
-                        <button
-                          className="day-card add-day"
-                          onClick={() =>
-                            askName("Add a workout day", (name) => {
-                              const id = uid();
-                              update((s) => {
-                                s.plans
-                                  .find((p) => p.id === currentPlan.id)!
-                                  .days.push({ id, name, movements: [] });
-                              });
-                              setSelectedDay(id);
-                            })
-                          }
-                        >
-                          <Plus size={24} />
-                          <strong>Add workout day</strong>
-                          <span>Upper, Lower, Push, Pull…</span>
-                        </button>
-                      </div>
+                          </div>
+                          <div className="day-grid">
+                            {currentPlan.days.map((d, i) => (
+                              <article
+                                className={`day-card ${selectedDay === d.id ? "chosen" : ""}`}
+                                key={d.id}
+                              >
+                                <span className="eyebrow">
+                                  DAY {i + 1}{" "}
+                                  {currentPlan.next %
+                                    currentPlan.days.length ===
+                                  i
+                                    ? "· UP NEXT"
+                                    : ""}
+                                </span>
+                                <h3>{d.name}</h3>
+                                <p>
+                                  {d.movements.length} exercises ·{" "}
+                                  {d.movements.reduce(
+                                    (n, m) => n + m.sets.length,
+                                    0,
+                                  )}{" "}
+                                  sets
+                                </p>
+                                <div className="actions">
+                                  <button
+                                    className="secondary"
+                                    onClick={() => setSelectedDay(d.id)}
+                                  >
+                                    Edit day
+                                  </button>
+                                  <button
+                                    className="primary"
+                                    disabled={!d.movements.length}
+                                    onClick={() =>
+                                      launch(
+                                        d.name,
+                                        d.movements,
+                                        currentPlan.id,
+                                        d.id,
+                                      )
+                                    }
+                                  >
+                                    <PlayIcon />
+                                    Start
+                                  </button>
+                                  <button
+                                    className="icon-button"
+                                    title="Set as next workout"
+                                    onClick={() =>
+                                      update((s) => {
+                                        s.plans.find(
+                                          (p) => p.id === currentPlan.id,
+                                        )!.next = i;
+                                      })
+                                    }
+                                  >
+                                    <ArrowRight size={15} />
+                                  </button>
+                                </div>
+                              </article>
+                            ))}
+                            <button
+                              className="day-card add-day"
+                              onClick={() =>
+                                askName("Add a workout day", (name) => {
+                                  const id = uid();
+                                  update((s) => {
+                                    s.plans
+                                      .find((p) => p.id === currentPlan.id)!
+                                      .days.push({ id, name, movements: [] });
+                                  });
+                                  setSelectedDay(id);
+                                })
+                              }
+                            >
+                              <Plus size={24} />
+                              <strong>Add workout day</strong>
+                              <span>Upper, Lower, Push, Pull…</span>
+                            </button>
+                          </div>
+                        </>
+                      )}
                       {currentDay && (
                         <>
                           <div className="section-title">
-                            <h2>{currentDay.name}</h2>
+                            <div>
+                              <button
+                                className="secondary"
+                                onClick={() => setSelectedDay(null)}
+                              >
+                                <ChevronLeft size={16} />
+                                Back to plan
+                              </button>
+                              <h2>{currentDay.name}</h2>
+                              <small role="status">{saveStatus}</small>
+                            </div>
                             <div className="actions">
                               <button
                                 className="ghost"
@@ -1954,6 +2039,20 @@ function App() {
                               </button>
                             </div>
                           </div>
+                          <button
+                            className="primary"
+                            disabled={!currentDay.movements.length}
+                            onClick={() =>
+                              launch(
+                                currentDay.name,
+                                currentDay.movements,
+                                currentPlan.id,
+                                currentDay.id,
+                              )
+                            }
+                          >
+                            Start
+                          </button>
                           {renderMovements(
                             currentDay.movements,
                             (fn) => modifyDay((d) => fn(d.movements)),
@@ -1989,220 +2088,257 @@ function App() {
             <>
               {currentWorkout ? (
                 <>
-                  <div className="workout-summary">
-                    <div>
-                      <span className="tag green">
-                        {historyEdit ? "EDITING HISTORY" : "LIVE WORKOUT"}
-                      </span>
-                      <input
-                        className="workout-title-input"
-                        aria-label="Workout name"
-                        value={currentWorkout.name}
-                        onChange={(e) =>
-                          modifyWorkout((w) => {
-                            w.name = e.target.value;
-                          })
-                        }
-                      />
-                      <p>
-                        {dateLabel(currentWorkout.started)} ·{" "}
-                        {completeCount(currentWorkout)} completed sets ·{" "}
-                        {fmt(
-                          toDisplayWeight(
-                            recordedVolume(currentWorkout),
-                            state.settings.weight,
-                          ),
-                        )}{" "}
-                        {state.settings.weight} volume
-                      </p>
-                    </div>
-                    <div className="actions">
-                      {historyEdit ? (
+                  {!historyEdit && !currentWorkout.guided?.overview ? (
+                    <GuidedWorkout
+                      state={state}
+                      now={now}
+                      lookup={exercise}
+                      update={update}
+                      notify={notify}
+                      finish={finishWorkout}
+                    />
+                  ) : (
+                    <>
+                      {!historyEdit && (
                         <button
                           className="primary"
-                          onClick={() => {
-                            setHistoryEdit(null);
-                            go("history");
-                          }}
+                          onClick={() =>
+                            modifyWorkout((w) => {
+                              w.guided = {
+                                ...w.guided,
+                                phase: w.guided?.phase ?? "intro",
+                                overview: false,
+                              };
+                            })
+                          }
                         >
-                          <Check size={16} />
-                          Done editing
-                        </button>
-                      ) : (
-                        <button className="primary" onClick={finishWorkout}>
-                          <Check size={16} />
-                          Finish workout
+                          Back to guided workout
                         </button>
                       )}
-                      <button
-                        className="secondary"
-                        onClick={() =>
-                          confirm(
-                            historyEdit
-                              ? "Delete workout?"
-                              : "Discard workout?",
-                            historyEdit
-                              ? "This removes the workout from history."
-                              : "This removes your unfinished session.",
-                            () => {
-                              if (historyEdit) {
-                                update((s) => {
-                                  s.workouts = s.workouts.filter(
-                                    (w) => w.id !== historyEdit,
-                                  );
-                                });
+                      <div className="workout-summary">
+                        <div>
+                          <span className="tag green">
+                            {historyEdit ? "EDITING HISTORY" : "LIVE WORKOUT"}
+                          </span>
+                          <input
+                            className="workout-title-input"
+                            aria-label="Workout name"
+                            value={currentWorkout.name}
+                            onChange={(e) =>
+                              modifyWorkout((w) => {
+                                w.name = e.target.value;
+                              })
+                            }
+                          />
+                          <p>
+                            {dateLabel(currentWorkout.started)} ·{" "}
+                            {completeCount(currentWorkout)} completed sets ·{" "}
+                            {fmt(
+                              toDisplayWeight(
+                                recordedVolume(currentWorkout),
+                                state.settings.weight,
+                              ),
+                            )}{" "}
+                            {state.settings.weight} volume
+                          </p>
+                        </div>
+                        <div className="actions">
+                          {historyEdit ? (
+                            <button
+                              className="primary"
+                              onClick={() => {
                                 setHistoryEdit(null);
                                 go("history");
-                              } else {
-                                update((s) => {
-                                  s.active = null;
-                                  s.timer = null;
-                                });
-                              }
-                            },
+                              }}
+                            >
+                              <Check size={16} />
+                              Done editing
+                            </button>
+                          ) : (
+                            <button className="primary" onClick={finishWorkout}>
+                              <Check size={16} />
+                              Finish workout
+                            </button>
+                          )}
+                          <button
+                            className="secondary"
+                            onClick={() =>
+                              confirm(
+                                historyEdit
+                                  ? "Delete workout?"
+                                  : "Discard workout?",
+                                historyEdit
+                                  ? "This removes the workout from history."
+                                  : "This removes your unfinished session.",
+                                () => {
+                                  if (historyEdit) {
+                                    update((s) => {
+                                      s.workouts = s.workouts.filter(
+                                        (w) => w.id !== historyEdit,
+                                      );
+                                    });
+                                    setHistoryEdit(null);
+                                    go("history");
+                                  } else {
+                                    update((s) => {
+                                      s.active = null;
+                                      s.timer = null;
+                                    });
+                                  }
+                                },
+                              )
+                            }
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+                      {renderMovements(currentWorkout.movements, (fn, undo) =>
+                        modifyWorkout((w) => fn(w.movements), undo),
+                      )}
+                      <button
+                        className="add-exercise"
+                        onClick={() =>
+                          openPicker((e) =>
+                            modifyWorkout((w) =>
+                              w.movements.push(makeMovement(e)),
+                            ),
                           )
                         }
                       >
-                        <Trash2 size={16} />
+                        <Plus size={18} />
+                        Add exercise
                       </button>
-                    </div>
-                  </div>
-                  {renderMovements(currentWorkout.movements, (fn, undo) =>
-                    modifyWorkout((w) => fn(w.movements), undo),
-                  )}
-                  <button
-                    className="add-exercise"
-                    onClick={() =>
-                      openPicker((e) =>
-                        modifyWorkout((w) => w.movements.push(makeMovement(e))),
-                      )
-                    }
-                  >
-                    <Plus size={18} />
-                    Add exercise
-                  </button>
-                  <section className="panel">
-                    <label className="field">
-                      Workout notes
-                      <textarea
-                        placeholder="How did the session feel? Anything to remember?"
-                        value={currentWorkout.notes}
-                        onChange={(e) =>
-                          modifyWorkout((w) => {
-                            w.notes = e.target.value;
-                          })
-                        }
-                      />
-                    </label>
-                    <div className="actions">
-                      <button
-                        className="secondary"
-                        onClick={() => {
-                          if (!state.plans.length) {
-                            notify(
-                              "Create a plan first, then save this workout into it.",
-                            );
-                            return;
-                          }
-                          setModal(
-                            <SaveDayForm
-                              plans={state.plans}
-                              name={currentWorkout.name}
-                              close={() => setModal(null)}
-                              save={(planId, name) => {
-                                update((s) => {
-                                  s.plans
-                                    .find((p) => p.id === planId)!
-                                    .days.push({
-                                      id: uid(),
-                                      name,
-                                      movements: structuredClone(
-                                        currentWorkout.movements,
-                                      ).map((m) => ({
-                                        ...m,
-                                        id: uid(),
-                                        sets: m.sets.map((t) => ({
-                                          ...t,
-                                          id: uid(),
-                                          done: false,
-                                        })),
-                                      })),
-                                    });
-                                });
-                                setModal(null);
-                                notify("Saved as a workout day.");
-                              }}
-                            />,
-                          );
-                        }}
-                      >
-                        <Save size={16} />
-                        Save as plan day
-                      </button>
-                      {currentWorkout.planId && currentWorkout.dayId && (
-                        <button
-                          className="secondary"
-                          onClick={() =>
-                            confirm(
-                              "Update saved workout day?",
-                              "Replace the plan day’s exercise order, targets, rest periods, and notes with this session. Past workouts remain unchanged.",
-                              () => {
-                                update((s) => {
-                                  const d = s.plans
-                                    .find((p) => p.id === currentWorkout.planId)
-                                    ?.days.find(
-                                      (d) => d.id === currentWorkout.dayId,
-                                    );
-                                  if (d)
-                                    d.movements = structuredClone(
-                                      currentWorkout.movements,
-                                    ).map((m) => ({
-                                      ...m,
-                                      id: uid(),
-                                      sets: m.sets.map((t) => ({
-                                        ...t,
-                                        id: uid(),
-                                        done: false,
-                                      })),
-                                    }));
-                                });
-                                notify("Saved workout day updated.");
-                              },
-                            )
-                          }
-                        >
-                          Update saved workout day
-                        </button>
-                      )}
-                      <button
-                        className="ghost"
-                        disabled={
-                          !undoRef.current ||
-                          undoRef.current.id !== currentWorkout.id
-                        }
-                        onClick={() => {
-                          if (
-                            undoRef.current &&
-                            undoRef.current.id === currentWorkout.id
-                          ) {
-                            const previous = structuredClone(undoRef.current);
-                            update((s) => {
-                              if (historyEdit)
-                                s.workouts = s.workouts.map((w) =>
-                                  w.id === previous.id ? previous : w,
+                      <section className="panel">
+                        <label className="field">
+                          Workout notes
+                          <textarea
+                            placeholder="How did the session feel? Anything to remember?"
+                            value={currentWorkout.notes}
+                            onChange={(e) =>
+                              modifyWorkout((w) => {
+                                w.notes = e.target.value;
+                              })
+                            }
+                          />
+                        </label>
+                        <div className="actions">
+                          <button
+                            className="secondary"
+                            onClick={() => {
+                              if (!state.plans.length) {
+                                notify(
+                                  "Create a plan first, then save this workout into it.",
                                 );
-                              else s.active = previous;
-                            });
-                            undoRef.current = null;
-                            notify("Last change undone.");
-                          }
-                        }}
-                      >
-                        <RotateCcw size={15} />
-                        Undo last set/removal
-                      </button>
-                    </div>
-                  </section>
+                                return;
+                              }
+                              setModal(
+                                <SaveDayForm
+                                  plans={state.plans}
+                                  name={currentWorkout.name}
+                                  close={() => setModal(null)}
+                                  save={(planId, name) => {
+                                    update((s) => {
+                                      s.plans
+                                        .find((p) => p.id === planId)!
+                                        .days.push({
+                                          id: uid(),
+                                          name,
+                                          movements: structuredClone(
+                                            currentWorkout.movements,
+                                          ).map((m) => ({
+                                            ...m,
+                                            id: uid(),
+                                            sets: m.sets.map((t) => ({
+                                              ...t,
+                                              id: uid(),
+                                              done: false,
+                                              skipped: false,
+                                            })),
+                                          })),
+                                        });
+                                    });
+                                    setModal(null);
+                                    notify("Saved as a workout day.");
+                                  }}
+                                />,
+                              );
+                            }}
+                          >
+                            <Save size={16} />
+                            Save as plan day
+                          </button>
+                          {currentWorkout.planId && currentWorkout.dayId && (
+                            <button
+                              className="secondary"
+                              onClick={() =>
+                                confirm(
+                                  "Update saved workout day?",
+                                  "Replace the plan day’s exercise order, targets, rest periods, and notes with this session. Past workouts remain unchanged.",
+                                  () => {
+                                    update((s) => {
+                                      const d = s.plans
+                                        .find(
+                                          (p) => p.id === currentWorkout.planId,
+                                        )
+                                        ?.days.find(
+                                          (d) => d.id === currentWorkout.dayId,
+                                        );
+                                      if (d)
+                                        d.movements = structuredClone(
+                                          currentWorkout.movements,
+                                        ).map((m) => ({
+                                          ...m,
+                                          id: uid(),
+                                          sets: m.sets.map((t) => ({
+                                            ...t,
+                                            id: uid(),
+                                            done: false,
+                                            skipped: false,
+                                          })),
+                                        }));
+                                    });
+                                    notify("Saved workout day updated.");
+                                  },
+                                )
+                              }
+                            >
+                              Update saved workout day
+                            </button>
+                          )}
+                          <button
+                            className="ghost"
+                            disabled={
+                              !undoRef.current ||
+                              undoRef.current.id !== currentWorkout.id
+                            }
+                            onClick={() => {
+                              if (
+                                undoRef.current &&
+                                undoRef.current.id === currentWorkout.id
+                              ) {
+                                const previous = structuredClone(
+                                  undoRef.current,
+                                );
+                                update((s) => {
+                                  if (historyEdit)
+                                    s.workouts = s.workouts.map((w) =>
+                                      w.id === previous.id ? previous : w,
+                                    );
+                                  else s.active = previous;
+                                });
+                                undoRef.current = null;
+                                notify("Last change undone.");
+                              }
+                            }}
+                          >
+                            <RotateCcw size={15} />
+                            Undo last set/removal
+                          </button>
+                        </div>
+                      </section>
+                    </>
+                  )}
                 </>
               ) : (
                 <Empty
@@ -3034,37 +3170,39 @@ function App() {
           <span>More</span>
         </a>
       </nav>
-      {state.timer && !historyEdit && (
-        <div className="timer-bar">
-          <Timer size={18} />
-          <strong>
-            {now >= state.timer
-              ? "Rest complete"
-              : `${Math.floor(Math.ceil(Math.max(0, state.timer - now) / 1000) / 60)}:${String(Math.ceil(Math.max(0, state.timer - now) / 1000) % 60).padStart(2, "0")}`}
-          </strong>
-          <button
-            className="ghost"
-            onClick={() =>
-              update((s) => {
-                s.timer = (s.timer ?? Date.now()) + 30000;
-              })
-            }
-          >
-            +30s
-          </button>
-          <button
-            className="icon-button"
-            aria-label="Dismiss rest timer"
-            onClick={() =>
-              update((s) => {
-                s.timer = null;
-              })
-            }
-          >
-            <X size={17} />
-          </button>
-        </div>
-      )}
+      {state.timer &&
+        !historyEdit &&
+        !(tab === "workout" && !state.active?.guided?.overview) && (
+          <div className="timer-bar">
+            <Timer size={18} />
+            <strong>
+              {now >= state.timer
+                ? "Rest complete"
+                : `${Math.floor(Math.ceil(Math.max(0, state.timer - now) / 1000) / 60)}:${String(Math.ceil(Math.max(0, state.timer - now) / 1000) % 60).padStart(2, "0")}`}
+            </strong>
+            <button
+              className="ghost"
+              onClick={() =>
+                update((s) => {
+                  s.timer = (s.timer ?? Date.now()) + 30000;
+                })
+              }
+            >
+              +30s
+            </button>
+            <button
+              className="icon-button"
+              aria-label="Dismiss rest timer"
+              onClick={() =>
+                update((s) => {
+                  s.timer = null;
+                })
+              }
+            >
+              <X size={17} />
+            </button>
+          </div>
+        )}
       {notice && (
         <div className="toast" role="status">
           {notice}

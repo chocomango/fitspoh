@@ -61,6 +61,7 @@ const set = (s) =>
   numeric(s.distance, 10000) &&
   ["working", "warmup", "drop", "failure"].includes(s.type) &&
   typeof s.done === "boolean" &&
+  (s.skipped === undefined || typeof s.skipped === "boolean") &&
   (s.effort === undefined || numeric(s.effort, 10)) &&
   (s.effortKind === undefined || ["RIR", "RPE"].includes(s.effortKind));
 const movement = (m) =>
@@ -86,7 +87,30 @@ const workout = (w) =>
   movements(w.movements) &&
   str(w.notes) &&
   (w.planId === undefined || id(w.planId)) &&
-  (w.dayId === undefined || id(w.dayId));
+  (w.dayId === undefined || id(w.dayId)) &&
+  (w.guided === undefined ||
+    (w.guided &&
+      ["intro", "entry", "rest", "between", "summary"].includes(
+        w.guided.phase,
+      ) &&
+      (w.guided.setId === undefined || id(w.guided.setId)) &&
+      (w.guided.lastSetId === undefined || id(w.guided.lastSetId)) &&
+      (w.guided.overview === undefined ||
+        typeof w.guided.overview === "boolean") &&
+      (w.guided.draft === undefined ||
+        (w.guided.draft &&
+          id(w.guided.draft.setId) &&
+          w.guided.draft.values &&
+          typeof w.guided.draft.values === "object" &&
+          !Array.isArray(w.guided.draft.values) &&
+          Object.entries(w.guided.draft.values).every(
+            ([key, value]) =>
+              ["weight", "reps", "seconds", "distance", "effort"].includes(
+                key,
+              ) &&
+              str(value) &&
+              value.length <= 40,
+          )))));
 export function validateBackup(input, exerciseIds = []) {
   const s = input?.data ?? input;
   if (input?.format && input.format !== "fitspoh-backup")

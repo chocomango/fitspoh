@@ -27,6 +27,63 @@ const baseline = () => ({
   settings: { weight: "kg", length: "cm", distance: "km", effort: "off" },
   timer: null,
 });
+test("guided backups retain progress and skipped sets, accept older sessions, reject malformed progress", () => {
+  const state = baseline();
+  state.active = {
+    id: "active",
+    name: "Workout",
+    started: "2026-10-05T10:00:00Z",
+    notes: "",
+    movements: [
+      {
+        id: "movement",
+        exerciseId: "exercise",
+        rest: 90,
+        notes: "",
+        superset: "",
+        repMin: 8,
+        repMax: 12,
+        sets: [
+          {
+            id: "set",
+            weight: 20,
+            reps: 10,
+            seconds: 60,
+            distance: 0,
+            type: "working",
+            done: false,
+            skipped: true,
+          },
+        ],
+      },
+    ],
+    guided: {
+      phase: "rest",
+      setId: "set",
+      lastSetId: "removed-set",
+      overview: false,
+      draft: { setId: "set", values: { weight: "27.", reps: "" } },
+    },
+  };
+  state.timer = Date.now() + 90000;
+  assert.deepEqual(validateBackup(state), state);
+  const older = structuredClone(state);
+  delete older.active.guided;
+  delete older.active.movements[0].sets[0].skipped;
+  assert.doesNotThrow(() => validateBackup(older));
+  for (const progress of [
+    { phase: "unknown" },
+    { phase: "entry", setId: 3 },
+    { phase: "rest", overview: "true" },
+  ]) {
+    const bad = structuredClone(state);
+    bad.active.guided = progress;
+    assert.throws(() => validateBackup(bad), /Invalid workout records/);
+  }
+  const bad = structuredClone(state);
+  bad.active.movements[0].sets[0].skipped = "yes";
+  assert.throws(() => validateBackup(bad), /Invalid workout records/);
+});
 test("gym availability requires every equipment item to be confirmed and usable", () => {
   const ex = { required: ["dumbbell", "bench"] };
   const eq = [

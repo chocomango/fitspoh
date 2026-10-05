@@ -1,0 +1,99 @@
+.guided-workout {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 24px;
+}
+.guided-workout h2 {
+  margin: 16px 0;
+  font-size: clamp(24px, 5vw, 34px);
+}
+.guided-workout .section-title {
+  margin: 0 0 20px;
+  flex-wrap: wrap;
+}
+.guided-workout p {
+  line-height: 1.6;
+}
+.guided-image {
+  display: block;
+  width: 100%;
+  height: 210px;
+  object-fit: contain;
+  background: white;
+  border-radius: 18px;
+  margin: 16px 0;
+}
+.guided-workout details {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+  margin: 16px 0;
+}
+.guided-workout summary {
+  cursor: pointer;
+  min-height: 32px;
+}
+.guided-workout li {
+  line-height: 1.6;
+  margin: 8px 0;
+}
+.guided-last,
+.guided-results {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+  margin: 16px 0;
+}
+.guided-last span {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+}
+.guided-inputs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 20px 0;
+}
+.guided-inputs input {
+  width: 100%;
+  min-width: 0;
+  min-height: 64px;
+  font-size: 28px;
+  text-align: center;
+}
+.guided-primary {
+  width: 100%;
+  min-height: 58px;
+  margin: 16px 0;
+  font-size: 16px;
+}
+.guided-rest {
+  text-align: center;
+}
+.guided-rest .actions {
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.guided-countdown {
+  font-size: clamp(54px, 16vw, 88px);
+  font-variant-numeric: tabular-nums;
+  margin: 24px 0;
+  font-weight: 700;
+}
+.guided-workout button {
+  min-height: 44px;
+}
+@media (max-width: 600px) {
+  .guided-workout {
+    padding: 16px;
+  }
+  .guided-workout .eyebrow {
+    font-size: 11px;
+  }
+  .guided-workout .section-title strong {
+    max-width: 55%;
+    overflow-wrap: anywhere;
+  }
+}

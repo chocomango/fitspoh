@@ -23,8 +23,8 @@ For the production preview, run `npm run build` then `npm run preview` and open 
 
 1. Open **My gym** (under **More** on a phone). Confirm the equipment you have seen at Anytime Fitness Bedok South CC. Publicly listed categories are not treated as a verified machine inventory.
 2. Open **My plans**, create a plan, add workout days, then choose exercises and target sets, loads, rep ranges, and rest periods. Optional A/B/C groups form supersets or circuits; the rest timer starts once the round is complete.
-3. Start a workout day. Planned loads take priority; blank/zero loads reuse the previous session's load when available. Tap previous performance to copy a set, or copy the whole previous exercise. Prefilled sets are not counted until marked complete.
-4. Use the exercise title to open photos, steps, movement schematics, personal technique notes, machine setup notes, and performance history.
+3. Start a workout day to open the phone companion: exercise introduction, one set at a time, rest, then the next exercise. The first set uses the corresponding completed set from the last session when available; otherwise it uses the plan. Later sets keep the weight just used with their planned rep targets. “Last time” stays visible for comparison. Prefilled sets are not counted until completed.
+4. Complete a set to save its results and start rest when another set remains. Adjust or skip the countdown; when it ends, tap **Start next set**. Between exercises, review results and tap **Next exercise**, or start an optional rest. Expand **Technique & notes** for photos, steps, schematics, and your notes. **Overview** provides the full log for corrections, adding sets, replacement, and skipping; **Guide this exercise** returns to a chosen exercise. Editing a plan day opens a dedicated editor with a **Back to plan** button.
 5. Finish to save the session and advance the plan's next day. Session edits do not alter the plan unless you choose **Update saved workout day**.
 6. Open **Body progress** for weigh-ins, optional body-fat percentage, and waist/chest/hips/arm/thigh measurements. Fields are independent; at least one measurement is required per entry.
 
@@ -33,7 +33,7 @@ Weights are logged per hand for dumbbells, as total load for barbells, and as as
 ## Persistence, backups, and offline use
 
 - All records stay in the current browser profile's IndexedDB database. No account, analytics, server database, or automatic device synchronization.
-- Unfinished sessions save automatically and resume after reopening. Save errors are displayed. An unreadable database is not overwritten with an empty journal.
+- Unfinished sessions, set entries, guided progress, and rest deadlines save automatically and resume after reopening. Rest alerts occur while the app is open or when it resumes; background notifications are not provided. Save errors are displayed. An unreadable database is not overwritten with an empty journal.
 - **Export full backup** downloads a versioned JSON file including plans, workouts, body entries, equipment, custom exercises, notes, and preferences. Keep copies outside browser storage. Clearing site data or using a different browser/device does not preserve these records.
 - Import previews and validates a backup before confirmation to replace current data. Export existing records first if you need them. CSV exports provide human-readable workout and body-stat tables; CSV is not a restorable backup format.
 - A service worker caches the app shell for offline reopening. All guide text and movement schematics are bundled; viewed photos are cached. **Download plan guides** caches photos for exercises in saved plans.

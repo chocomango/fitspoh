@@ -31,6 +31,7 @@ export type SetLog = {
   effort?: number;
   effortKind?: "RIR" | "RPE";
   done: boolean;
+  skipped?: boolean;
 };
 export type Movement = {
   id: string;
@@ -53,6 +54,18 @@ export type Workout = {
   notes: string;
   planId?: string;
   dayId?: string;
+  guided?: {
+    setId?: string;
+    phase: "intro" | "entry" | "rest" | "between" | "summary";
+    lastSetId?: string;
+    overview?: boolean;
+    draft?: {
+      setId: string;
+      values: Partial<
+        Record<"weight" | "reps" | "seconds" | "distance" | "effort", string>
+      >;
+    };
+  };
 };
 export type BodyEntry = {
   id: string;

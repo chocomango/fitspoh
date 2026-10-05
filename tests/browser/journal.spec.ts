@@ -38,6 +38,7 @@ test("plans, workouts, body stats, backups, and offline recovery on GitHub Pages
   await page.getByLabel("Set 1 weight").fill("20");
   await page.getByLabel("Set 1 reps").fill("12");
   await page.getByRole("button", { name: "Start", exact: true }).click();
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
   await page.getByRole("button", { name: "Complete set 1" }).click();
   await expect(page.locator(".set-check.checked")).toHaveCount(1);
   await page.getByLabel("Workout notes").fill("Good session");
