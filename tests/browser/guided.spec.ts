@@ -1,5 +1,4 @@
 import { test, expect, type Page } from "@playwright/test";
-
 async function seed(page: Page, grouped = false, variant = "strength") {
   await page.goto("");
   await expect(page.getByText("Saved on this device").first()).toBeAttached();
@@ -123,7 +122,6 @@ async function seed(page: Page, grouped = false, variant = "strength") {
   await page.goto("#plans");
   await page.getByRole("button", { name: "My plan 1 days" }).click();
 }
-
 test("mobile companion edits days, remembers last time, saves entry, rests and finishes", async ({
   page,
 }) => {
@@ -213,7 +211,6 @@ test("mobile companion edits days, remembers last time, saves entry, rests and f
   await expect(page.locator(".history-card")).toHaveCount(2);
   expect(errors).toEqual([]);
 });
-
 for (const variant of ["warmup", "assisted", "cardio", "duration"]) {
   test(`${variant} sets use the correct inputs and avoid weight-record messages`, async ({
     page,
@@ -249,12 +246,15 @@ for (const variant of ["warmup", "assisted", "cardio", "duration"]) {
     ).toBeVisible();
   });
 }
-
 test("supersets alternate exercises and rest only after a round; overview recovers deleted cursor", async ({
   page,
 }) => {
   await seed(page, true);
   await page.getByRole("button", { name: "Start", exact: true }).click();
+  await page.getByText("Workout settings", { exact: true }).click();
+  await page
+    .getByLabel("Exercise order", { exact: true })
+    .selectOption("circuit");
   await page.getByRole("button", { name: "Start set", exact: true }).click();
   await page.getByRole("button", { name: "Complete set", exact: true }).click();
   await expect(page.getByRole("timer")).toHaveCount(0);
@@ -278,5 +278,56 @@ test("supersets alternate exercises and rest only after a round; overview recove
   await expect(
     page.getByRole("heading", { name: "Workout review" }),
   ).toBeVisible();
-  await expect(page.locator(".guided-results")).toContainText("Skipped");
+  await expect(page.locator("div.guided-results")).toContainText("Skipped");
+});
+
+test("straight sets stay on one exercise and old entries remain editable after advancing", async ({
+  page,
+}) => {
+  await seed(page, true);
+  await page.getByRole("button", { name: "Start", exact: true }).click();
+  await page.getByRole("button", { name: "Start set", exact: true }).click();
+  for (let i = 0; i < 2; i++) {
+    await page
+      .getByRole("button", { name: "Complete set & start rest" })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Barbell Curl", exact: true }),
+    ).toBeVisible();
+    await page
+      .getByRole("button", { name: /Skip rest|Start next set/ })
+      .click();
+  }
+  await page.getByRole("button", { name: "Complete set", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Next exercise", exact: true })
+    .click();
+  await page.getByLabel("Weight (kg)", { exact: true }).fill("32.5");
+  await page
+    .getByText("Back to a previous exercise / correct a set", { exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Edit Barbell Curl - set 1", exact: true })
+    .click();
+  await page.getByLabel("Reps", { exact: true }).fill("9");
+  await page.getByRole("button", { name: "Complete set", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Next exercise", exact: true })
+    .click();
+  await expect(page.getByLabel("Weight (kg)", { exact: true })).toHaveValue(
+    "32.5",
+  );
+  await page.reload();
+  await page
+    .getByText("Back to a previous exercise / correct a set", { exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", {
+      name: "Edit Barbell Curl - set 1",
+      exact: true,
+    }),
+  ).toBeAttached();
+  await expect(page.getByLabel("Weight (kg)", { exact: true })).toHaveValue(
+    "32.5",
+  );
 });

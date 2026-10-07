@@ -1,3 +1,4 @@
+import { playRestAlert } from "./rest-alerts";
 import React, {
   useEffect,
   useRef,
@@ -352,6 +353,7 @@ function App() {
       timerAnnounced.current = state.timer;
       notify("Rest complete. Ready for your next set.");
       navigator.vibrate?.([150, 80, 150]);
+      void playRestAlert();
     }
   }, [now, state.timer]);
   useEffect(() => {
@@ -1911,7 +1913,6 @@ function App() {
           e.target.value = "";
         }}
       />
-
       <aside
         className="sidebar"
         inert={

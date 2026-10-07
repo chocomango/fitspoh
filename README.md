@@ -33,6 +33,8 @@ For the production preview, run `npm run build` then `npm run preview` and open 
 
 On a fresh journal, Home offers **Make a routine with Buddy**, manual plan creation, and gym-equipment setup. Configure only equipment you have confirmed, review Buddy's draft, save it, then start the workout from Home. Empty sessions provide **Add first exercise** and **Cancel empty workout** without creating history.
 
+Guided sessions default to completing all sets of one exercise before moving on. **Workout settings > Exercise order** optionally enables circuit rounds. **Back to a previous exercise / correct a set** stays available throughout the session and review: reopen a completed set, correct it, and complete it again; other completed sets stay saved.
+
 Guided sessions show completed-set progress, reject incomplete actual results, provide a brief **Undo completed set** action, and compare working reps at the same load with the last completed session. Overview remains available for later corrections.
 
 Journal saves use atomic transactions and revision checks. A second tab cannot silently overwrite newer records; the recovery banner offers a local export and reload. Failed writes can be retried, and backup restore reports success only after committing. Keep regular downloaded backups.
@@ -63,11 +65,11 @@ Review and edit exercise order, replacements, sets, reps, loads, rest, and notes
 ## Persistence, backups, and offline use
 
 - All records stay in the current browser profile's IndexedDB database. No account, analytics, server database, or automatic device synchronization.
-- Unfinished sessions, set entries, guided progress, and rest deadlines save automatically and resume after reopening. Rest alerts occur while the app is open or when it resumes; background notifications are not provided. Save errors are displayed. An unreadable database is not overwritten with an empty journal.
+- Unfinished sessions, set entries, guided progress, and rest deadlines save automatically and resume after reopening. Rest alerts occur while the app is open or when it resumes; optional sound and system notifications can be enabled in Workout settings. Alerts may be delayed when the browser suspends the app and cannot reliably ring with the browser closed. Use the phone timer for reliable locked-screen alerts. Save errors are displayed. An unreadable database is not overwritten with an empty journal.
 - **Export full backup** downloads a versioned JSON file including plans, workouts, body entries, equipment, custom exercises, notes, and preferences. Keep copies outside browser storage. Clearing site data or using a different browser/device does not preserve these records.
 - Import previews and validates a backup before confirmation to replace current data. Export existing records first if you need them. CSV exports provide human-readable workout and body-stat tables; CSV is not a restorable backup format.
 - A service worker caches the app shell for offline reopening. All guide text is bundled; viewed photos are cached. **Download plan guides** caches photos for exercises in saved plans.
-- Offline availability requires one successful online load on HTTPS or localhost. Browser vibration and storage-persistence support vary. Background timers derive remaining time from an end timestamp; notifications appear when the app is active again.
+- Offline availability requires one successful online load on HTTPS or localhost. Browser vibration and storage-persistence support vary. Background timers derive remaining time from an end timestamp; alerts can be delayed until the app is active again. Notification sound is controlled by phone/browser settings. Sound must be enabled again after reopening.
 - Installing the app is browser-dependent. The manifest supports standalone display; the app does not require installation.
 
 ## GitHub Pages

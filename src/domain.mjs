@@ -167,6 +167,7 @@ const workout = (w) =>
   str(w.notes) &&
   (w.planId === undefined || id(w.planId)) &&
   (w.dayId === undefined || id(w.dayId)) &&
+  (w.setOrder === undefined || ["exercise", "circuit"].includes(w.setOrder)) &&
   (w.deferredInputs === undefined ||
     (w.deferredInputs &&
       typeof w.deferredInputs === "object" &&

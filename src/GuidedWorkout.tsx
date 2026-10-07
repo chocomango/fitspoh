@@ -4,6 +4,7 @@ import { currentStep, workoutQueue } from "./guided";
 import { postpone, weightIncrement, saveIncrement } from "./mobile.mjs";
 import { useWorkoutWakeLock } from "./useWorkoutWakeLock";
 import { setIssue, sessionComparisons } from "./workout-feedback.mjs";
+import { enableRestAlerts } from "./rest-alerts";
 import { ExercisePhoto } from "./components";
 import {
   toDisplayDistance,
@@ -12,7 +13,6 @@ import {
   storedLoad,
   loadUnit,
 } from "./domain.mjs";
-
 type Props = {
   state: State;
   now: number;
@@ -49,7 +49,9 @@ export function GuidedWorkout({
   useEffect(() => {
     setIncrementText(null);
   }, [e?.id, state.settings.weight]);
-  const last = workoutQueue(w.movements).find((x) => x.set.id === g?.lastSetId);
+  const last = workoutQueue(w.movements, w.setOrder ?? "exercise").find(
+    (x) => x.set.id === g?.lastSetId,
+  );
   const previous =
     e &&
     [...state.workouts]
@@ -171,13 +173,17 @@ export function GuidedWorkout({
       }
       // A grouped round ends before the index advances or the group changes.
       const roundEnd =
+        active.setOrder !== "circuit" ||
         !current.movement.superset ||
         !next ||
         next.movement.superset !== current.movement.superset ||
         next.index !== current.index;
       const sameExercise = next?.movement.id === current.movement.id;
       const rest =
-        !!next && roundEnd && (!!current.movement.superset || sameExercise);
+        !!next &&
+        roundEnd &&
+        ((active.setOrder === "circuit" && !!current.movement.superset) ||
+          sameExercise);
       active.guided = {
         setId: next?.set.id,
         lastSetId: current.set.id,
@@ -323,6 +329,35 @@ export function GuidedWorkout({
       </div>
       <details className="workout-settings">
         <summary>Workout settings</summary>
+        <label className="field">
+          Exercise order
+          <select
+            aria-label="Exercise order"
+            value={w.setOrder ?? "exercise"}
+            onChange={(ev) =>
+              update((s) => {
+                if (!s.active) return;
+                s.active.setOrder = ev.target.value as "exercise" | "circuit";
+              })
+            }
+          >
+            <option value="exercise">All sets of one exercise</option>
+            <option value="circuit">Alternate circuit exercises</option>
+          </select>
+        </label>
+        <button
+          className="secondary"
+          onClick={async () => {
+            notify(await enableRestAlerts());
+          }}
+        >
+          Enable sound & phone notifications
+        </button>
+        <p className="hint">
+          Sound plays while the app is running. Phone notifications may be
+          delayed in the background. For reliable alerts with the browser closed
+          or phone locked, use your phone timer.
+        </p>
         <label className="toggle-row">
           <input
             type="checkbox"
@@ -485,7 +520,7 @@ export function GuidedWorkout({
             Exercise {w.movements.indexOf(step.movement) + 1} of{" "}
             {w.movements.length} · Set {step.index + 1} of{" "}
             {step.movement.sets.length}
-            {step.movement.superset
+            {w.setOrder === "circuit" && step.movement.superset
               ? ` · Circuit ${step.movement.superset}`
               : ""}
           </p>
@@ -662,13 +697,15 @@ export function GuidedWorkout({
               </div>
               <button className="primary guided-primary" onClick={complete}>
                 {(() => {
-                  const queue = workoutQueue(w.movements).filter(
-                    (x) => !x.set.done && !x.set.skipped,
-                  );
+                  const queue = workoutQueue(
+                    w.movements,
+                    w.setOrder ?? "exercise",
+                  ).filter((x) => !x.set.done && !x.set.skipped);
                   const next = queue.find((x) => x.set.id !== step.set.id);
                   return next &&
                     (next.movement.id === step.movement.id ||
-                      (step.movement.superset &&
+                      (w.setOrder === "circuit" &&
+                        step.movement.superset &&
                         next.movement.superset === step.movement.superset &&
                         next.index !== step.index))
                     ? "Complete set & start rest"
@@ -765,6 +802,49 @@ export function GuidedWorkout({
         </>
       ) : (
         <p>Open Overview to add an exercise.</p>
+      )}
+      {allSets.some((s) => s.done) && (
+        <details className="guided-results">
+          <summary>Back to a previous exercise / correct a set</summary>
+          <p className="hint">
+            Choose a completed set, correct its entry, then complete it again.
+            Other completed sets stay saved.
+          </p>
+          {w.movements.map((m) =>
+            m.sets.map(
+              (set, index) =>
+                set.done && (
+                  <button
+                    key={set.id}
+                    className="secondary"
+                    onClick={() => {
+                      setUndoSnapshot(null);
+                      setEntryError("");
+                      update((s) => {
+                        const active = s.active;
+                        const target = active?.movements
+                          .flatMap((m) => m.sets)
+                          .find((x) => x.id === set.id);
+                        if (!active || !target) return;
+                        if (active.guided?.draft) {
+                          active.deferredInputs ??= {};
+                          active.deferredInputs[active.guided.draft.setId] = {
+                            ...active.guided.draft.values,
+                          };
+                        }
+                        target.done = false;
+                        target.skipped = false;
+                        active.guided = { setId: target.id, phase: "entry" };
+                        s.timer = null;
+                      });
+                    }}
+                  >
+                    Edit {lookup(m.exerciseId)?.name} - set {index + 1}
+                  </button>
+                ),
+            ),
+          )}
+        </details>
       )}
       {undoSnapshot && (
         <button

@@ -70,6 +70,7 @@ export type Workout = {
   notes: string;
   planId?: string;
   dayId?: string;
+  setOrder?: "exercise" | "circuit";
   deferredInputs?: Record<
     string,
     Partial<
