@@ -61,6 +61,31 @@ export type Plan = {
   notes?: string;
   templateId?: string;
 };
+export type GuidedPosition = {
+  setId?: string;
+  phase: "intro" | "entry" | "rest" | "between" | "summary";
+  lastSetId?: string;
+  overview?: boolean;
+  draft?: {
+    setId: string;
+    values: Partial<
+      Record<"weight" | "reps" | "seconds" | "distance" | "effort", string>
+    >;
+  };
+};
+export type GuidedSetReturn = {
+  setId: string;
+  original: SetLog;
+  returnGuided: GuidedPosition;
+  remainingRestMs: number | null;
+  deferredValues?: Partial<
+    Record<"weight" | "reps" | "seconds" | "distance" | "effort", string>
+  >;
+};
+export type GuidedProgress = GuidedPosition & {
+  editing?: GuidedSetReturn;
+  undo?: GuidedSetReturn & { kind: "complete" | "skip" };
+};
 export type Workout = {
   id: string;
   name: string;
@@ -71,24 +96,15 @@ export type Workout = {
   planId?: string;
   dayId?: string;
   setOrder?: "exercise" | "circuit";
+  pausedAt?: number;
+  pausedRestMs?: number;
   deferredInputs?: Record<
     string,
     Partial<
       Record<"weight" | "reps" | "seconds" | "distance" | "effort", string>
     >
   >;
-  guided?: {
-    setId?: string;
-    phase: "intro" | "entry" | "rest" | "between" | "summary";
-    lastSetId?: string;
-    overview?: boolean;
-    draft?: {
-      setId: string;
-      values: Partial<
-        Record<"weight" | "reps" | "seconds" | "distance" | "effort", string>
-      >;
-    };
-  };
+  guided?: GuidedProgress;
 };
 export type BodyEntry = {
   id: string;

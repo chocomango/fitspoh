@@ -83,6 +83,12 @@ import "./guided.css";
 import { GuidedWorkout } from "./GuidedWorkout";
 import { setIssue } from "./workout-feedback.mjs";
 import { activePlan, switchWeightUnit } from "./mobile.mjs";
+import {
+  cleanWorkoutProgress,
+  syncEditedInputs,
+  guideSet,
+  preserveGuidedDraft,
+} from "./workout-actions.mjs";
 import { WorkoutBuddy } from "./WorkoutBuddy";
 import {
   defaultBuddyPreferences,
@@ -231,13 +237,8 @@ function App() {
       }
       const next = structuredClone(old);
       fn(next);
-      if (next.active?.deferredInputs) {
-        const sets = new Set(
-          next.active.movements.flatMap((m) => m.sets.map((s) => s.id)),
-        );
-        for (const key of Object.keys(next.active.deferredInputs))
-          if (!sets.has(key)) delete next.active.deferredInputs[key];
-      }
+      if (next.active) cleanWorkoutProgress(next.active);
+      next.workouts.forEach(cleanWorkoutProgress);
       return next;
     });
   useEffect(() => {
@@ -577,16 +578,9 @@ function App() {
         ? s.workouts.find((w) => w.id === historyEdit)
         : s.active;
       if (w) {
-        const before = new Map(
-          w.movements.flatMap((m) =>
-            m.sets.map((t) => [t.id, JSON.stringify(t)] as const),
-          ),
-        );
+        const before = structuredClone(w.movements);
         fn(w);
-        for (const t of w.movements.flatMap((m) => m.sets)) {
-          if (before.get(t.id) !== JSON.stringify(t) && w.deferredInputs)
-            delete w.deferredInputs[t.id];
-        }
+        syncEditedInputs(w, before);
       }
     }, undo);
   const modifyDay = (fn: (d: Day) => void) =>
@@ -1090,12 +1084,14 @@ function App() {
                     className="secondary"
                     onClick={() =>
                       modifyWorkout((w) => {
+                        preserveGuidedDraft(w);
                         m.sets.forEach((t) => {
                           const target = w.movements
                             .flatMap((x) => x.sets)
                             .find((x) => x.id === t.id);
                           if (target && !target.done) target.skipped = true;
                         });
+                        if (w.guided) delete w.guided.undo;
                       })
                     }
                   >
@@ -1103,17 +1099,17 @@ function App() {
                   </button>
                   <button
                     className="secondary"
+                    disabled={m.sets.every((set) => set.done)}
                     onClick={() =>
-                      modifyWorkout((w) => {
-                        const target = w.movements.find((x) => x.id === m.id);
-                        target?.sets.forEach((t) => {
-                          if (!t.done) t.skipped = false;
-                        });
-                        w.guided = {
-                          setId: target?.sets.find((t) => !t.done)?.id,
-                          phase: "intro",
-                          overview: false,
-                        };
+                      update((s) => {
+                        const target = s.active?.movements.find(
+                          (x) => x.id === m.id,
+                        );
+                        const next =
+                          target?.sets.find(
+                            (set) => !set.done && !set.skipped,
+                          ) ?? target?.sets.find((set) => !set.done);
+                        if (next) guideSet(s, next.id);
                       })
                     }
                   >
@@ -1577,6 +1573,11 @@ function App() {
     });
   const finishWorkout = () => {
     if (!state.active) return;
+    if (state.active.guided?.editing) {
+      notify("Save or cancel your set correction before finishing.");
+      go("workout");
+      return;
+    }
     if (!completeCount(state.active)) {
       notify("Complete at least one set before finishing.");
       return;
@@ -1596,9 +1597,21 @@ function App() {
       "Finish this workout?",
       "Completed sets will be saved to history. Uncompleted sets stay visible but do not count towards progress.",
       () => {
+        if (
+          !stateRef.current.active ||
+          stateRef.current.active.guided?.editing
+        ) {
+          notify("Save or cancel your set correction before finishing.");
+          return;
+        }
         update((s) => {
-          const w = s.active!;
+          const w = s.active;
+          if (!w || w.guided?.editing) return;
           w.finished = new Date().toISOString();
+          delete w.pausedAt;
+          delete w.pausedRestMs;
+          delete w.deferredInputs;
+          delete w.guided;
           s.workouts.push(w);
           if (w.planId) {
             const p = s.plans.find((p) => p.id === w.planId);
@@ -2014,7 +2027,7 @@ function App() {
           </div>
         )}
         <div
-          className={`page ${tab === "dashboard" ? "home-page" : ""} ${tab === "workout" && currentWorkout ? "live-workout-page" : ""}`}
+          className={`page ${tab === "dashboard" ? "home-page" : ""} ${tab === "workout" && currentWorkout ? "live-workout-page" : ""} ${tab === "workout" && state.active && !state.active.guided?.overview && !historyEdit ? "guided-workout-page" : ""}`}
         >
           <div className="page-heading">
             <div>
@@ -2105,7 +2118,11 @@ function App() {
                 )}
                 {state.active ? (
                   <>
-                    <span className="tag green">IN PROGRESS</span>
+                    <span className="tag green">
+                      {state.active.pausedAt !== undefined
+                        ? "PAUSED"
+                        : "IN PROGRESS"}
+                    </span>
                     <h3 className="hero-title">{state.active.name}</h3>
                     <p>
                       {completeCount(state.active)} completed sets · started{" "}

@@ -1,4 +1,51 @@
 import { test, expect, type Page } from "@playwright/test";
+
+test("extra guided sets preserve set three and run before the next exercise", async ({
+  page,
+}) => {
+  await seed(page);
+  await page.getByRole("button", { name: "Start", exact: true }).click();
+  await page.getByRole("button", { name: "Start set", exact: true }).click();
+  for (let i = 0; i < 2; i++) {
+    await page
+      .getByRole("button", { name: "Complete set & start rest" })
+      .click();
+    await page
+      .getByRole("button", { name: /Skip rest|Start next set/ })
+      .click();
+  }
+  await page.getByLabel("Weight (kg)", { exact: true }).fill("30");
+  await page.getByLabel("Reps", { exact: true }).fill("9");
+  await page
+    .getByRole("button", { name: "Add another set", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Add another set", exact: true })
+    .click();
+  await expect(page.getByText(/Set 3 of 5/)).toBeVisible();
+  await expect(page.getByLabel("Reps", { exact: true })).toHaveValue("9");
+  await page.reload();
+  await expect(page.getByText(/Set 3 of 5/)).toBeVisible();
+  await expect(page.getByLabel("Weight (kg)", { exact: true })).toHaveValue(
+    "30",
+  );
+  for (let i = 0; i < 2; i++) {
+    await page
+      .getByRole("button", { name: "Complete set & start rest" })
+      .click();
+    await page
+      .getByRole("button", { name: /Skip rest|Start next set/ })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Barbell Curl", exact: true }),
+    ).toBeVisible();
+  }
+  await expect(page.getByText(/Set 5 of 5/)).toBeVisible();
+  await page.getByRole("button", { name: "Complete set", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Dumbbell Bench Press", exact: true }),
+  ).toBeVisible();
+});
 async function seed(page: Page, grouped = false, variant = "strength") {
   await page.goto("");
   await expect(page.getByText("Saved on this device").first()).toBeAttached();
@@ -272,6 +319,7 @@ test("supersets alternate exercises and rest only after a round; overview recove
   await expect(
     page.getByRole("heading", { name: "Dumbbell Bench Press", exact: true }),
   ).toBeVisible();
+  await page.getByText("Workout actions", { exact: true }).click();
   await page
     .getByRole("button", { name: "Skip exercise", exact: true })
     .click();
@@ -310,9 +358,8 @@ test("straight sets stay on one exercise and old entries remain editable after a
     .getByRole("button", { name: "Edit Barbell Curl - set 1", exact: true })
     .click();
   await page.getByLabel("Reps", { exact: true }).fill("9");
-  await page.getByRole("button", { name: "Complete set", exact: true }).click();
   await page
-    .getByRole("button", { name: "Next exercise", exact: true })
+    .getByRole("button", { name: "Save correction", exact: true })
     .click();
   await expect(page.getByLabel("Weight (kg)", { exact: true })).toHaveValue(
     "32.5",

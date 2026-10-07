@@ -157,6 +157,31 @@ const inputValues = (values) =>
       str(value) &&
       value.length <= 40,
   );
+const guidedPosition = (g) =>
+  g &&
+  typeof g === "object" &&
+  !Array.isArray(g) &&
+  ["intro", "entry", "rest", "between", "summary"].includes(g.phase) &&
+  (g.setId === undefined || id(g.setId)) &&
+  (g.lastSetId === undefined || id(g.lastSetId)) &&
+  (g.overview === undefined || typeof g.overview === "boolean") &&
+  (g.draft === undefined ||
+    (g.draft && id(g.draft.setId) && inputValues(g.draft.values)));
+const guidedSetReturn = (snapshot, w) =>
+  snapshot &&
+  typeof snapshot === "object" &&
+  !Array.isArray(snapshot) &&
+  id(snapshot.setId) &&
+  set(snapshot.original) &&
+  snapshot.original.id === snapshot.setId &&
+  w.movements.some((m) => m.sets.some((s) => s.id === snapshot.setId)) &&
+  guidedPosition(snapshot.returnGuided) &&
+  snapshot.returnGuided.editing === undefined &&
+  snapshot.returnGuided.undo === undefined &&
+  (snapshot.deferredValues === undefined ||
+    inputValues(snapshot.deferredValues)) &&
+  (snapshot.remainingRestMs === null ||
+    numeric(snapshot.remainingRestMs, 1e15));
 const workout = (w) =>
   w &&
   id(w.id) &&
@@ -168,6 +193,9 @@ const workout = (w) =>
   (w.planId === undefined || id(w.planId)) &&
   (w.dayId === undefined || id(w.dayId)) &&
   (w.setOrder === undefined || ["exercise", "circuit"].includes(w.setOrder)) &&
+  (w.pausedAt === undefined || numeric(w.pausedAt, 1e15)) &&
+  (w.pausedRestMs === undefined ||
+    (w.pausedAt !== undefined && numeric(w.pausedRestMs, 1e15))) &&
   (w.deferredInputs === undefined ||
     (w.deferredInputs &&
       typeof w.deferredInputs === "object" &&
@@ -179,28 +207,20 @@ const workout = (w) =>
           inputValues(values),
       ))) &&
   (w.guided === undefined ||
-    (w.guided &&
-      ["intro", "entry", "rest", "between", "summary"].includes(
-        w.guided.phase,
-      ) &&
-      (w.guided.setId === undefined || id(w.guided.setId)) &&
-      (w.guided.lastSetId === undefined || id(w.guided.lastSetId)) &&
-      (w.guided.overview === undefined ||
-        typeof w.guided.overview === "boolean") &&
-      (w.guided.draft === undefined ||
-        (w.guided.draft &&
-          id(w.guided.draft.setId) &&
-          w.guided.draft.values &&
-          typeof w.guided.draft.values === "object" &&
-          !Array.isArray(w.guided.draft.values) &&
-          Object.entries(w.guided.draft.values).every(
-            ([key, value]) =>
-              ["weight", "reps", "seconds", "distance", "effort"].includes(
-                key,
-              ) &&
-              str(value) &&
-              value.length <= 40,
-          )))));
+    (guidedPosition(w.guided) &&
+      (w.guided.editing === undefined ||
+        (guidedSetReturn(w.guided.editing, w) &&
+          w.guided.editing.original.done &&
+          w.guided.setId === w.guided.editing.setId &&
+          w.guided.phase === "entry" &&
+          w.movements.some((m) =>
+            m.sets.some((s) => s.id === w.guided.editing.setId && s.done),
+          ))) &&
+      (w.guided.undo === undefined ||
+        (guidedSetReturn(w.guided.undo, w) &&
+          ["complete", "skip"].includes(w.guided.undo.kind) &&
+          !w.guided.undo.original.done &&
+          !w.guided.undo.original.skipped))));
 export function validateBackup(input, exerciseIds = []) {
   const s = input?.data ?? input;
   if (input?.format && input.format !== "fitspoh-backup")
@@ -327,6 +347,8 @@ export function validateBackup(input, exerciseIds = []) {
     throw Error("Invalid settings.");
   if (s.timer !== null && !numeric(s.timer, 1e15))
     throw Error("Invalid timer.");
+  if (s.active?.pausedAt !== undefined && s.timer !== null)
+    throw Error("A paused workout cannot have a running timer.");
   if (
     s.buddy !== undefined &&
     (!s.buddy ||

@@ -81,6 +81,7 @@ test("stack and per-side loads retain their conventions across units and backup"
     })
     .getByRole("button", { name: "Start", exact: true })
     .click();
+  await page.getByText("Workout actions", { exact: true }).click();
   await page
     .getByRole("button", { name: "Skip exercise", exact: true })
     .click();

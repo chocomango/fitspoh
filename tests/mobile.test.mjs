@@ -8,6 +8,11 @@ import {
   switchWeightUnit,
 } from "../src/mobile.mjs";
 import { validateBackup } from "../src/domain.mjs";
+import {
+  rememberSetUndo,
+  beginCorrection,
+  cancelCorrection,
+} from "../src/workout-actions.mjs";
 
 const state = () => ({
   version: 1,
@@ -102,6 +107,7 @@ test("postponement preserves partial rounds and raw input, and refuses a final g
     name: "Workout",
     started: "2026-10-06T01:00:00Z",
     notes: "",
+    setOrder: "circuit",
     movements: [movement("a", "A"), movement("b", "A"), movement("c")],
     guided: {
       phase: "entry",
@@ -128,6 +134,31 @@ test("postponement preserves partial rounds and raw input, and refuses a final g
   bad.active.deferredInputs.a1.invalid = "0";
   assert.throws(() => validateBackup(bad), /Invalid workout/);
 });
+
+test("postponement in exercise order moves one exercise and retains completion undo", () => {
+  const s = state();
+  s.active = {
+    id: "work",
+    name: "Workout",
+    started: "2026-10-06T01:00:00Z",
+    notes: "",
+    movements: [movement("a", "A"), movement("b", "A"), movement("c")],
+    guided: { phase: "entry", setId: "a0" },
+  };
+  rememberSetUndo(s, "a0", "complete", 100000);
+  s.active.movements[0].sets[0].done = true;
+  s.active.guided = { phase: "entry", setId: "a1", undo: s.active.guided.undo };
+  const undo = structuredClone(s.active.guided.undo);
+  assert.equal(postpone(s.active, "a"), true);
+  assert.deepEqual(
+    s.active.movements.map((m) => m.id),
+    ["b", "c", "a"],
+  );
+  assert.deepEqual(s.active.guided.undo, undo);
+  assert.doesNotThrow(() => validateBackup(s));
+  s.active.pausedAt = 100000;
+  assert.equal(postpone(s.active, "b"), false);
+});
 test("switching units converts unfinished input but preserves blank and stack entries", () => {
   const s = state();
   s.active = {
@@ -145,4 +176,35 @@ test("switching units converts unfinished input but preserves blank and stack en
   assert.equal(s.active.deferredInputs.b0.weight, "20");
   assert.equal(s.active.deferredInputs.b1.weight, "");
   assert.equal(s.active.movements[0].sets[0].weight, 20);
+});
+
+test("switching units converts saved return drafts and original correction input before cancel", () => {
+  const s = state();
+  s.active = {
+    id: "work",
+    name: "Workout",
+    started: "2026-10-06T01:00:00Z",
+    notes: "",
+    movements: [movement("a")],
+    guided: {
+      setId: "a1",
+      phase: "entry",
+      draft: { setId: "a1", values: { weight: "20", reps: "" } },
+    },
+    deferredInputs: { a0: { weight: "20" } },
+  };
+  s.active.movements[0].sets[0].done = true;
+  beginCorrection(s, "a0", 100000);
+  s.active.movements[0].sets[0].weight = 25;
+  switchWeightUnit(s, "lb", (id) => ({ id, loadKind: "plates" }));
+  assert.equal(
+    s.active.guided.editing.returnGuided.draft.values.weight,
+    "44.09",
+  );
+  assert.equal(s.active.guided.editing.deferredValues.weight, "44.09");
+  cancelCorrection(s, 200000);
+  assert.equal(s.active.guided.draft.values.weight, "44.09");
+  assert.equal(s.active.guided.draft.values.reps, "");
+  assert.equal(s.active.movements[0].sets[0].weight, 20);
+  assert.equal(s.active.deferredInputs.a0.weight, "44.09");
 });

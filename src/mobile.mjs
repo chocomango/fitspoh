@@ -1,4 +1,5 @@
 import { displayLoad, storedLoad } from "./domain.mjs";
+import { preserveGuidedDraft } from "./workout-actions.mjs";
 
 /** @param {import('./types').State} state */
 export const activePlan = (state) =>
@@ -32,7 +33,24 @@ export function switchWeightUnit(state, unit, lookup) {
   const entries = Object.entries(workout.deferredInputs ?? {});
   if (workout.guided?.draft)
     entries.push([workout.guided.draft.setId, workout.guided.draft.values]);
-  for (const [setId, values] of entries) {
+  for (const snapshot of [workout.guided?.editing, workout.guided?.undo]) {
+    if (!snapshot) continue;
+    if (snapshot.returnGuided.draft) {
+      const draft = snapshot.returnGuided.draft;
+      entries.push([
+        draft.setId,
+        draft.values,
+        draft.setId === snapshot.setId ? snapshot.original.weight : undefined,
+      ]);
+    }
+    if (snapshot.deferredValues)
+      entries.push([
+        snapshot.setId,
+        snapshot.deferredValues,
+        snapshot.original.weight,
+      ]);
+  }
+  for (const [setId, values, originalWeight] of entries) {
     if (values.weight === undefined || values.weight === "") continue;
     const movement = workout.movements.find((m) =>
       m.sets.some((t) => t.id === setId),
@@ -41,28 +59,36 @@ export function switchWeightUnit(state, unit, lookup) {
     if (set)
       values.weight = String(
         Number(
-          displayLoad(set.weight, unit, lookup(movement.exerciseId)).toFixed(2),
+          displayLoad(
+            originalWeight ?? set.weight,
+            unit,
+            lookup(movement.exerciseId),
+          ).toFixed(2),
         ),
       );
   }
 }
 export function postpone(workout, movementId) {
+  if (workout.pausedAt !== undefined || workout.guided?.editing) return false;
   const current = workout.movements.find((m) => m.id === movementId);
   if (!current) return false;
   const group = workout.movements.filter(
     (m) =>
       m.id === movementId ||
-      (current.superset && m.superset === current.superset),
+      (workout.setOrder === "circuit" &&
+        current.superset &&
+        m.superset === current.superset),
   );
   const other = workout.movements.filter((m) => !group.includes(m));
   const next = other.flatMap((m) => m.sets).find((s) => !s.done && !s.skipped);
   if (!next) return false;
-  const draft = workout.guided?.draft;
-  if (draft) {
-    workout.deferredInputs ??= {};
-    workout.deferredInputs[draft.setId] = draft.values;
-  }
+  preserveGuidedDraft(workout);
+  const undo = workout.guided?.undo;
   workout.movements = [...other, ...group];
-  workout.guided = { setId: next.id, phase: "intro" };
+  workout.guided = {
+    setId: next.id,
+    phase: "intro",
+    ...(undo ? { undo } : {}),
+  };
   return true;
 }

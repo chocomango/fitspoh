@@ -354,6 +354,10 @@ test("busy equipment postpones partial groups with input intact and blocks postp
   await page
     .getByRole("button", { name: "Start this workout", exact: true })
     .click();
+  await page.getByText("Workout settings", { exact: true }).click();
+  await page
+    .getByLabel("Exercise order", { exact: true })
+    .selectOption("circuit");
   await page.getByRole("button", { name: "Start set", exact: true }).click();
   await page.getByRole("button", { name: "Complete set", exact: true }).click();
   await page
@@ -380,6 +384,7 @@ test("busy equipment postpones partial groups with input intact and blocks postp
   expect(s.active.movements[1].sets[0].done).toBeTruthy();
   expect(s.plans[1].days[0].movements[0].exerciseId).toBe("Barbell_Curl");
   await page.reload();
+  await page.getByText("Workout actions", { exact: true }).click();
   await page
     .getByRole("button", { name: "Skip exercise", exact: true })
     .click();

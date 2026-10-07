@@ -523,7 +523,6 @@ test("Buddy's explicit last-load action preserves unitless stack settings when u
     })
     .getByRole("button", { name: "Guide this exercise", exact: true })
     .click();
-  await page.getByRole("button", { name: "Start set", exact: true }).click();
   await expect(
     page.getByLabel("Weight (stack setting)", { exact: true }),
   ).toHaveValue("30");

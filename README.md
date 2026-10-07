@@ -33,9 +33,15 @@ For the production preview, run `npm run build` then `npm run preview` and open 
 
 On a fresh journal, Home offers **Make a routine with Buddy**, manual plan creation, and gym-equipment setup. Configure only equipment you have confirmed, review Buddy's draft, save it, then start the workout from Home. Empty sessions provide **Add first exercise** and **Cancel empty workout** without creating history.
 
-Guided sessions default to completing all sets of one exercise before moving on. **Workout settings > Exercise order** optionally enables circuit rounds. **Back to a previous exercise / correct a set** stays available throughout the session and review: reopen a completed set, correct it, and complete it again; other completed sets stay saved.
+Guided sessions default to completing all sets of one exercise before moving on. **Workout settings > Exercise order** optionally enables circuit rounds. **Back to a previous exercise / correct a set** stays available throughout the session and review: open a saved set, correct it, and choose **Save correction** or **Cancel correction**. Completed sets remain counted, and you return to your previous entry or rest countdown.
 
-Guided sessions show completed-set progress, reject incomplete actual results, provide a brief **Undo completed set** action, and compare working reps at the same load with the last completed session. Overview remains available for later corrections.
+Guided sessions show completed-set progress, reject incomplete actual results, provide a persistent **Undo completed set** action, and compare working reps at the same load with the last completed session. Overview remains available for later corrections.
+
+During guided set entry, **Add another set** appends an unfinished set to the current exercise without leaving the entry screen. You can add set 4 while entering set 3, then complete, rest, and continue on that exercise. Extra sets save with this session and do not change the saved plan.
+
+The guided phone screen puts the load/reps and a large completion button first, with technique, history and settings collapsed below. Tap a set chip to jump to an unfinished set or correct a saved one. **Workout exercises** lets you continue elsewhere or add a set to an exercise you already finished; your unfinished entries are kept, and the selected exercise stays together. **Skip this set** affects only one set and can be undone after reopening.
+
+**Pause workout** freezes the remaining rest time until **Resume workout**, including after reopening. **Workout actions** offers warm-up sets with an explicit load, set types, session rest duration, exercise notes, adding an exercise, and finishing early. **Last time > Use last session values** copies prior results only when requested. An extra set after finishing an exercise starts its configured rest. None of these session adjustments automatically changes the saved plan.
 
 Journal saves use atomic transactions and revision checks. A second tab cannot silently overwrite newer records; the recovery banner offers a local export and reload. Failed writes can be retried, and backup restore reports success only after committing. Keep regular downloaded backups.
 

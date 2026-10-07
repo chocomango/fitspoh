@@ -3,6 +3,7 @@
 ## Improvements
 
 - Home prioritizes the active plan or unfinished workout. First-run setup leads directly to equipment selection, Buddy, or manual plan creation; empty sessions have clear add/cancel actions.
+- Guided workouts now put entry controls and a fixed phone completion action first. Set chips support reversible corrections without reducing the completed count; drafts survive exercise navigation. Pause freezes rest through reload, single-set skipping and completion have persistent undo, and warm-ups, extra sets, notes, rest changes and early finish stay within the session.
 - Guided workouts support adjustable loads/reps, configurable increments, progress, actual-result validation, undo, rest recovery, same-load comparisons, and equipment-busy postponement of whole groups. Plans remain separate from session edits.
 - Optional screen-awake mode handles browser refusal without interrupting workouts. Both themes retain photos and written guides on narrow screens.
 - Journal writes and reviewed backup restores are atomic. Revision checks prevent stale tabs overwriting newer records; conflicts and failed saves provide recovery actions. “Saved” appears only after persistence succeeds.
