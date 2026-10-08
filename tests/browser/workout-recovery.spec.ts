@@ -16,155 +16,158 @@ async function read(page: Page) {
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
-    const state = await new Promise<any>((resolve, reject) => {
-      const request = db
-        .transaction("journal", "readonly")
-        .objectStore("journal")
-        .get("state");
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    db.close();
-    return state;
+    try {
+      return await new Promise<any>((resolve, reject) => {
+        const tx = db.transaction("journal", "readonly");
+        tx.onabort = () =>
+          reject(tx.error ?? new Error("Journal read aborted."));
+        const request = tx.objectStore("journal").get("state");
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    } finally {
+      db.close();
+    }
   });
+}
+
+async function restoreJournal(page: Page, state: unknown) {
+  await page.locator("input[type=file]").setInputFiles({
+    name: "recovery-fixture.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(state)),
+  });
+  await page
+    .getByRole("button", { name: "Replace and restore", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Restore your journal?", exact: true }),
+  ).not.toBeAttached();
+  await expect(page.locator(".storage-status")).toContainText(
+    "Saved on this device",
+  );
 }
 
 async function seed(page: Page, options: SeedOptions = {}) {
   await page.goto("");
   await expect(page.getByText("Saved on this device").first()).toBeAttached();
-  await page.evaluate(async (options) => {
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("fitspoh", 1);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    const tx = db.transaction("journal", "readwrite");
-    const journal = tx.objectStore("journal");
-    const request = journal.get("state");
-    request.onsuccess = () => {
-      const state = request.result;
-      const movement = (id: string, exerciseId: string, count: number) => ({
-        id,
-        exerciseId,
-        rest: 90,
-        notes: "Seat setting 3",
-        superset: "",
-        repMin: 8,
-        repMax: 12,
-        sets: Array.from({ length: count }, (_, index) => ({
-          id: `${id}-${index}`,
-          weight: 20 + index * 5,
-          reps: 10 - index,
-          seconds: 60,
-          distance: 0,
-          type: "working",
-          done: options.done?.includes(`${id}-${index}`) ?? false,
-          skipped: false,
-        })),
-      });
-      state.active = {
-        id: "workout-recovery",
-        name: "Recovery workout",
-        planId: "recovery-plan",
-        dayId: "recovery-day",
-        started: new Date().toISOString(),
-        movements: [
-          movement("curl", "Barbell_Curl", options.singleSet ? 1 : 3),
-          movement("bench", "Dumbbell_Bench_Press", 2),
-        ],
-        notes: "Preserve this workout note",
-        setOrder: "exercise",
-        guided: {
-          setId: options.cursor ?? "curl-0",
-          phase: options.rest ? "rest" : "entry",
-          ...(options.rest
-            ? {
-                lastSetId: "curl-0",
-                draft: { setId: "curl-1", values: { reps: "" } },
-              }
-            : {}),
-        },
-      };
-      if (options.warmups)
-        state.active.movements[0].sets.unshift(
-          ...Array.from({ length: options.warmups }, (_, index) => ({
-            ...state.active.movements[0].sets[0],
-            id: `warm-${index}`,
-            weight: 10,
-            type: "warmup",
-            done: true,
-          })),
-        );
-      state.plans = [
+  const state = await read(page);
+  if (!state)
+    throw new Error("The initial journal was not saved before seeding.");
+  const movement = (id: string, exerciseId: string, count: number) => ({
+    id,
+    exerciseId,
+    rest: 90,
+    notes: "Seat setting 3",
+    superset: "",
+    repMin: 8,
+    repMax: 12,
+    sets: Array.from({ length: count }, (_, index) => ({
+      id: `${id}-${index}`,
+      weight: 20 + index * 5,
+      reps: 10 - index,
+      seconds: 60,
+      distance: 0,
+      type: "working",
+      done: options.done?.includes(`${id}-${index}`) ?? false,
+      skipped: false,
+    })),
+  });
+  state.active = {
+    id: "workout-recovery",
+    name: "Recovery workout",
+    planId: "recovery-plan",
+    dayId: "recovery-day",
+    started: new Date().toISOString(),
+    movements: [
+      movement("curl", "Barbell_Curl", options.singleSet ? 1 : 3),
+      movement("bench", "Dumbbell_Bench_Press", 2),
+    ],
+    notes: "Preserve this workout note",
+    setOrder: "exercise",
+    guided: {
+      setId: options.cursor ?? "curl-0",
+      phase: options.rest ? "rest" : "entry",
+      ...(options.rest
+        ? {
+            lastSetId: "curl-0",
+            draft: { setId: "curl-1", values: { reps: "" } },
+          }
+        : {}),
+    },
+  };
+  if (options.warmups)
+    state.active.movements[0].sets.unshift(
+      ...Array.from({ length: options.warmups }, (_, index) => ({
+        ...state.active.movements[0].sets[0],
+        id: `warm-${index}`,
+        weight: 10,
+        type: "warmup",
+        done: true,
+      })),
+    );
+  state.plans = [
+    {
+      id: "recovery-plan",
+      name: "Saved recovery routine",
+      next: 0,
+      days: [
         {
-          id: "recovery-plan",
-          name: "Saved recovery routine",
-          next: 0,
-          days: [
+          id: "recovery-day",
+          name: "Recovery workout",
+          movements: structuredClone(state.active.movements).map(
+            (movement: any) => ({
+              ...movement,
+              sets: movement.sets.map((set: any) => ({
+                ...set,
+                done: false,
+              })),
+            }),
+          ),
+        },
+        {
+          id: "recovery-next-day",
+          name: "Next workout",
+          movements: [movement("next-bench", "Dumbbell_Bench_Press", 2)],
+        },
+      ],
+    },
+  ];
+  state.workouts = options.history
+    ? [
+        {
+          id: "recovery-previous",
+          name: "Previous workout",
+          started: new Date(Date.now() - 86400000).toISOString(),
+          finished: new Date(Date.now() - 82800000).toISOString(),
+          notes: "",
+          movements: [
             {
-              id: "recovery-day",
-              name: "Recovery workout",
-              movements: structuredClone(state.active.movements).map(
-                (movement: any) => ({
-                  ...movement,
-                  sets: movement.sets.map((set: any) => ({
-                    ...set,
-                    done: false,
-                  })),
+              ...structuredClone(state.active.movements[0]),
+              id: "previous-curl",
+              sets: state.active.movements[0].sets.map(
+                (set: any, index: number) => ({
+                  ...set,
+                  id: `previous-curl-${index}`,
+                  weight: 40,
+                  reps: 12,
+                  done: true,
+                  skipped: false,
                 }),
               ),
             },
-            {
-              id: "recovery-next-day",
-              name: "Next workout",
-              movements: [movement("next-bench", "Dumbbell_Bench_Press", 2)],
-            },
           ],
         },
-      ];
-      state.workouts = options.history
-        ? [
-            {
-              id: "recovery-previous",
-              name: "Previous workout",
-              started: new Date(Date.now() - 86400000).toISOString(),
-              finished: new Date(Date.now() - 82800000).toISOString(),
-              notes: "",
-              movements: [
-                {
-                  ...structuredClone(state.active.movements[0]),
-                  id: "previous-curl",
-                  sets: state.active.movements[0].sets.map(
-                    (set: any, index: number) => ({
-                      ...set,
-                      id: `previous-curl-${index}`,
-                      weight: 40,
-                      reps: 12,
-                      done: true,
-                      skipped: false,
-                    }),
-                  ),
-                },
-              ],
-            },
-          ]
-        : [];
-      delete state.completionUndo;
-      state.timer = options.rest ? Date.now() + 90000 : null;
-      state.settings.theme = "focus";
-      state.settings.weight = "kg";
-      state.settings.effort = "off";
-      state.settings.activePlanId = "recovery-plan";
-      journal.put(state, "state");
-    };
-    await new Promise<void>((resolve, reject) => {
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-    db.close();
-  }, options);
+      ]
+    : [];
+  delete state.completionUndo;
+  state.timer = options.rest ? Date.now() + 90000 : null;
+  state.settings.theme = "focus";
+  state.settings.weight = "kg";
+  state.settings.effort = "off";
+  state.settings.activePlanId = "recovery-plan";
+  await restoreJournal(page, state);
   await page.goto("#workout");
-  await page.reload();
   await expect(page.locator(".guided-workout")).toBeVisible();
   if (!options.rest)
     await expect(page.getByLabel("Reps", { exact: true })).toBeVisible();
@@ -208,28 +211,11 @@ test("Overview input limits keep the journal readable after reload", async ({
 
 async function cardioSeed(page: Page) {
   await seed(page);
-  await page.evaluate(async () => {
-    const db = await new Promise<IDBDatabase>((resolve) => {
-      const request = indexedDB.open("fitspoh", 1);
-      request.onsuccess = () => resolve(request.result);
-    });
-    const tx = db.transaction("journal", "readwrite");
-    const store = tx.objectStore("journal");
-    const request = store.get("state");
-    request.onsuccess = () => {
-      const state = request.result;
-      state.active.movements = [state.active.movements[0]];
-      state.active.movements[0].exerciseId = "Bicycling_Stationary";
-      state.settings.distance = "mi";
-      store.put(state, "state");
-    };
-    await new Promise<void>((resolve, reject) => {
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-    db.close();
-  });
-  await page.reload();
+  const state = await read(page);
+  state.active.movements = [state.active.movements[0]];
+  state.active.movements[0].exerciseId = "Bicycling_Stationary";
+  state.settings.distance = "mi";
+  await restoreJournal(page, state);
   await expect(page.getByLabel("Distance (mi)", { exact: true })).toBeVisible();
 }
 

@@ -110,9 +110,17 @@ A later CI run reported 71/72 browser scenarios passing: the straight-set correc
 
 `tests/browser/guided.spec.ts` now waits for the journal's **Saved on this device** status before every reload. The affected correction scenario retains a one-second transaction delay to exercise slow storage, without arbitrary sleeps or retries masking the assertions. Ten repeats with delayed storage passed. Application state, persistence behavior and the expected weight remain unchanged. This follow-up does not remove the previously documented risk of forced termination before a pending save commits.
 
+Follow-up validation: all 8 guided-workout browser scenarios passed, the delayed-storage correction scenario passed 10 consecutive repeats, lint passed, and `git diff --check` passed. The full 72-scenario suite was not rerun for this test-only follow-up; its earlier complete result is recorded above.
+
+## Recovery fixture timeout follow-up
+
+A subsequent CI run timed out inside `workout-recovery.spec.ts` fixture setup, before the warm-up UI action. A fresh local production build and the complete 72-scenario browser suite passed before changes, so the specific CI timeout was not reproduced locally. Inspection found that the fixture directly mutated the live journal inside an IndexedDB request callback and awaited a transaction without an abort handler; an abort or callback exception could leave setup unresolved.
+
+Recovery and cardio fixtures now construct data outside the transaction and load it through the existing validated backup restore UI, waiting for the restore to commit and its dialog to close. Journal reads reject aborts and close connections in `finally`. This removes the bespoke write callback and keeps React state and journal revision synchronized. The reported warm-up scenario passed 10 consecutive local repeats after the change. The precise cause of the CI transaction stall remains unconfirmed without its browser/runtime diagnostics; no retries or increased timeout were added.
+
 ## Remaining risks and coverage limits
 
-Follow-up validation: all 8 guided-workout browser scenarios passed, the delayed-storage correction scenario passed 10 consecutive repeats, lint passed, and `git diff --check` passed. The full 72-scenario suite was not rerun for this test-only follow-up; its earlier complete result is recorded above.
+Recovery follow-up validation: `npm run build` passed locally; the complete browser suite passed 72/72 both before and after the fixture change (final run: 2.2 minutes); the warm-up scenario passed 10 repeats; lint, formatting and `git diff --check` passed. Only test setup and audit documentation changed.
 
 - Existing invalid journals are blocked safely rather than silently rewritten. Recovery from such a journal needs a reviewed valid backup or targeted repair; this patch prevents new oversized entries.
 - A hard crash before IndexedDB commits can lose the most recent pending change. Tests cover reload after persistence, failed writes and conflicting tabs; they do not simulate operating-system termination at every transaction boundary.
