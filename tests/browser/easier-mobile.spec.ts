@@ -1,107 +1,73 @@
 import { test, expect, type Page } from "@playwright/test";
+import { readJournal as read, restoreJournal } from "./journal-fixture";
 
 async function seed(page: Page, grouped = false, unknown = false) {
   await page.goto("");
   await expect(page.getByText("Saved on this device").first()).toBeAttached();
-  await page.evaluate(
-    async ({ grouped, unknown }) => {
-      const db = await new Promise<IDBDatabase>((resolve) => {
-        const r = indexedDB.open("fitspoh", 1);
-        r.onsuccess = () => resolve(r.result);
-      });
-      const tx = db.transaction("journal", "readwrite");
-      const store = tx.objectStore("journal");
-      const r = store.get("state");
-      r.onsuccess = () => {
-        const s = r.result;
-        const movement = (id: string, exerciseId: string, group = "") => ({
-          id,
-          exerciseId,
-          rest: 90,
-          notes: "",
-          superset: group,
-          repMin: 8,
-          repMax: 12,
-          sets: [0, 1].map((i) => ({
-            id: id + i,
-            weight: 20,
-            reps: 10,
-            seconds: 60,
-            distance: 0,
-            type: "working",
-            done: false,
-            needsLoad: unknown,
-          })),
-        });
-        s.plans = [
-          { id: "empty", name: "Empty plan", next: 0, days: [] },
-          {
-            id: "a",
-            name: "Plan A",
-            next: 0,
-            days: [
-              {
-                id: "day-a",
-                name: "Upper A",
-                movements: [
-                  movement("curl", "Barbell_Curl", grouped ? "A" : ""),
-                  movement("bench", "Dumbbell_Bench_Press", grouped ? "A" : ""),
-                  movement("row", "Seated_Cable_Rows"),
-                ],
-              },
-            ],
-          },
-          {
-            id: "b",
-            name: "Plan B",
-            next: 0,
-            days: [
-              {
-                id: "day-b",
-                name: "Upper B",
-                movements: [movement("press", "Dumbbell_Bench_Press")],
-              },
-            ],
-          },
-        ];
-        s.workouts = [];
-        s.active = null;
-        s.timer = null;
-        s.equipment.forEach((e: any) => {
-          e.confirmed = true;
-          e.unavailable = false;
-        });
-        store.put(s, "state");
-      };
-      await new Promise<void>((resolve) => {
-        tx.oncomplete = () => resolve();
-      });
-      db.close();
+  const s = await read(page);
+  const movement = (id: string, exerciseId: string, group = "") => ({
+    id,
+    exerciseId,
+    rest: 90,
+    notes: "",
+    superset: group,
+    repMin: 8,
+    repMax: 12,
+    sets: [0, 1].map((i) => ({
+      id: id + i,
+      weight: 20,
+      reps: 10,
+      seconds: 60,
+      distance: 0,
+      type: "working",
+      done: false,
+      needsLoad: unknown,
+    })),
+  });
+  s.plans = [
+    { id: "empty", name: "Empty plan", next: 0, days: [] },
+    {
+      id: "a",
+      name: "Plan A",
+      next: 0,
+      days: [
+        {
+          id: "day-a",
+          name: "Upper A",
+          movements: [
+            movement("curl", "Barbell_Curl", grouped ? "A" : ""),
+            movement("bench", "Dumbbell_Bench_Press", grouped ? "A" : ""),
+            movement("row", "Seated_Cable_Rows"),
+          ],
+        },
+      ],
     },
-    { grouped, unknown },
-  );
-  await page.reload();
+    {
+      id: "b",
+      name: "Plan B",
+      next: 0,
+      days: [
+        {
+          id: "day-b",
+          name: "Upper B",
+          movements: [movement("press", "Dumbbell_Bench_Press")],
+        },
+      ],
+    },
+  ];
+  s.workouts = [];
+  s.active = null;
+  s.timer = null;
+  s.equipment.forEach((e: any) => {
+    e.confirmed = true;
+    e.unavailable = false;
+  });
+  await restoreJournal(page, s);
 }
 async function saved(page: Page) {
   await expect(page.locator(".storage-status")).toContainText(
     "Saved on this device",
   );
-  await page.waitForTimeout(150);
-}
-async function read(page: Page) {
-  return page.evaluate(async () => {
-    const db = await new Promise<IDBDatabase>((resolve) => {
-      const r = indexedDB.open("fitspoh", 1);
-      r.onsuccess = () => resolve(r.result);
-    });
-    const tx = db.transaction("journal");
-    const value = await new Promise<any>((resolve) => {
-      const r = tx.objectStore("journal").get("state");
-      r.onsuccess = () => resolve(r.result);
-    });
-    db.close();
-    return value;
-  });
 }
 
 test("Use this plan marks the active choice and deleting it falls back to a nonempty plan", async ({
@@ -139,45 +105,30 @@ test("stack quick controls stay unitless in pounds and preserve their saved incr
   page,
 }) => {
   await seed(page);
-  await page.evaluate(async () => {
-    const db = await new Promise<IDBDatabase>((resolve) => {
-      const r = indexedDB.open("fitspoh", 1);
-      r.onsuccess = () => resolve(r.result);
-    });
-    const tx = db.transaction("journal", "readwrite");
-    const store = tx.objectStore("journal");
-    const r = store.get("state");
-    r.onsuccess = () => {
-      const s = r.result;
-      s.custom = [
-        {
-          id: "test-stack",
-          name: "Test stack",
-          mode: "strength",
-          equipment: "machine",
-          loadKind: "stack",
-          primaryMuscles: ["shoulders"],
-          secondaryMuscles: [],
-          required: [],
-          level: "beginner",
-          category: "strength",
-          instructions: ["Move slowly."],
-          images: [],
-          cues: [],
-          mistakes: [],
-        },
-      ];
-      s.plans[2].days[0].movements[0].exerciseId = "test-stack";
-      s.settings.activePlanId = "b";
-      s.settings.weight = "lb";
-      store.put(s, "state");
-    };
-    await new Promise<void>((resolve) => {
-      tx.oncomplete = () => resolve();
-    });
-    db.close();
-  });
-  await page.reload();
+  const s = await read(page);
+  s.custom = [
+    {
+      id: "test-stack",
+      name: "Test stack",
+      mode: "strength",
+      equipment: "machine",
+      loadKind: "stack",
+      primaryMuscles: ["shoulders"],
+      secondaryMuscles: [],
+      required: [],
+      level: "beginner",
+      category: "strength",
+      instructions: ["Move slowly."],
+      images: [],
+      cues: [],
+      mistakes: [],
+    },
+  ];
+  s.plans[2].days[0].movements[0].exerciseId = "test-stack";
+  s.settings.activePlanId = "b";
+  s.settings.weight = "lb";
+  await restoreJournal(page, s);
+
   await page
     .getByRole("button", { name: "Start this workout", exact: true })
     .click();

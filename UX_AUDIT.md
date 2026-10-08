@@ -138,3 +138,11 @@ iPhone follow-up validation: production build and lint passed; all 74 Chromium b
 - Plan/day and Body deletion have confirmation but no post-confirmation Undo. History Undo does not survive reload and does not group keystrokes. Recovery records are bounded and device-specific.
 - Full workout finish still asks for confirmation. Direct save when no unfinished sets remain could remove one tap, but is deferred to avoid changing the established finish pattern without device feedback.
 - Headless Chromium tests and code inspection do not prove every combination of timer, history correction, stale plan, unit change and rapid action. Existing tests are retained; significant platform gaps are documented explicitly.
+
+## Shared browser fixture timeout follow-up
+
+The next CI timeout occurred in the same direct IndexedDB setup pattern in `workout-flow.spec.ts`, before the warm-up assertion. Workout-flow, mobile, and Buddy setup now build fixtures outside IndexedDB callbacks and import them through the validated journal restore UI. They share the recovery suite's read and restore helpers, which reject read aborts, close database connections, and wait for the restore dialog to close and saving to finish. Buddy's stale-source scenario also uses this path, and draft polling now uses the shared read helper. The mobile save helper no longer needs an arbitrary 150 ms delay.
+
+The remaining direct browser-test writes deliberately inject corrupted data or delay storage to test recovery behavior. No retries or timeout increases were added. The exact cause of the reported CI stall remains unconfirmed.
+
+Local validation: production build, lint, unit tests, and `git diff --check` passed. The full Chromium suite passed 74/74 in 2.4 minutes; the reported workout-flow warm-up scenario passed 10 additional consecutive runs. This follow-up changes browser fixtures and audit documentation only.

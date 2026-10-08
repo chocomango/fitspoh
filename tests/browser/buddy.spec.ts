@@ -1,149 +1,118 @@
 import { test, expect, type Page } from "@playwright/test";
+import { readJournal as read, restoreJournal } from "./journal-fixture";
 
 async function seed(page: Page, withStack = false) {
   await page.goto("#buddy");
   await expect(page.getByText("Saved on this device").first()).toBeAttached();
-  await page.evaluate(async (withStack) => {
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open("fitspoh", 1);
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
-    const tx = db.transaction("journal", "readwrite"),
-      store = tx.objectStore("journal"),
-      req = store.get("state");
-    req.onsuccess = () => {
-      const s = req.result;
-      s.equipment.forEach((e: { confirmed: boolean; unavailable: boolean }) => {
-        e.confirmed = true;
-        e.unavailable = false;
-      });
-      const movement = (
-        id: string,
-        exerciseId: string,
-        weight: number,
-        optional = false,
-      ) => ({
-        id,
-        exerciseId,
-        weight,
-        rest: 90,
-        notes: "Preserve targets",
-        superset: "",
-        repMin: 8,
-        repMax: 12,
-        optional,
-        sets: Array.from({ length: 3 }, (_, i) => ({
-          id: `${id}-${i}`,
-          weight,
-          reps: 10,
-          seconds: 60,
-          distance: 0,
-          type: "working",
-          done: false,
-        })),
-      });
-      const moves = [
-        movement("bench-source", "Dumbbell_Bench_Press", 27.5),
-        movement("lat-source", "Wide-Grip_Lat_Pulldown", 60),
-        movement("row-source", "Seated_Cable_Rows", 63.75),
-        movement("incline-source", "Incline_Dumbbell_Press", 25),
-        movement("lateral-source", "Side_Lateral_Raise", 0, true),
-      ];
-      moves[0].sets[0].reps = 9;
-      moves[0].sets[2].reps = 8;
-      s.plans = [
+  const s = await read(page);
+  s.equipment.forEach((e: { confirmed: boolean; unavailable: boolean }) => {
+    e.confirmed = true;
+    e.unavailable = false;
+  });
+  const movement = (
+    id: string,
+    exerciseId: string,
+    weight: number,
+    optional = false,
+  ) => ({
+    id,
+    exerciseId,
+    weight,
+    rest: 90,
+    notes: "Preserve targets",
+    superset: "",
+    repMin: 8,
+    repMax: 12,
+    optional,
+    sets: Array.from({ length: 3 }, (_, i) => ({
+      id: `${id}-${i}`,
+      weight,
+      reps: 10,
+      seconds: 60,
+      distance: 0,
+      type: "working",
+      done: false,
+    })),
+  });
+  const moves = [
+    movement("bench-source", "Dumbbell_Bench_Press", 27.5),
+    movement("lat-source", "Wide-Grip_Lat_Pulldown", 60),
+    movement("row-source", "Seated_Cable_Rows", 63.75),
+    movement("incline-source", "Incline_Dumbbell_Press", 25),
+    movement("lateral-source", "Side_Lateral_Raise", 0, true),
+  ];
+  moves[0].sets[0].reps = 9;
+  moves[0].sets[2].reps = 8;
+  s.plans = [
+    {
+      id: "source-plan",
+      name: "My existing plan",
+      next: 0,
+      days: [
         {
-          id: "source-plan",
-          name: "My existing plan",
-          next: 0,
-          days: [
-            {
-              id: "source-day",
-              name: "Upper source",
-              notes: "My source notes",
-              movements: moves,
-            },
-          ],
+          id: "source-day",
+          name: "Upper source",
+          notes: "My source notes",
+          movements: moves,
         },
-      ];
-      const old = movement("history-bench", "Dumbbell_Bench_Press", 27.5);
-      old.sets.forEach((t) => {
-        t.done = true;
-      });
-      s.workouts = [
-        {
-          id: "old-workout",
-          name: "Previous",
-          started: "2026-10-01T10:00:00Z",
-          finished: "2026-10-01T11:00:00Z",
-          notes: "",
-          movements: [old],
-        },
-      ];
-      s.active = null;
-      if (withStack) {
-        s.settings.weight = "lb";
-        s.equipment.push({
-          id: "lateral raise machine",
-          name: "Lateral machine",
-          confirmed: true,
-          unavailable: false,
-        });
-        s.custom.push({
-          id: "personal-lateral-machine",
-          name: "Lateral Raise Machine",
-          loadKind: "stack",
-          required: ["lateral raise machine"],
-          equipment: "machine",
-          level: "beginner",
-          category: "strength",
-          mode: "strength",
-          primaryMuscles: ["shoulders"],
-          secondaryMuscles: [],
-          images: [],
-          instructions: ["Use controlled movement."],
-          cues: ["Use controlled movement."],
-          mistakes: [],
-        });
-        const previous = movement(
-          "stack-history",
-          "personal-lateral-machine",
-          30,
-        );
-        previous.sets.forEach((t) => {
-          t.done = true;
-        });
-        s.workouts[0].movements.push(previous);
-      }
-      store.put(s, "state");
-    };
-    await new Promise<void>((resolve, reject) => {
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
+      ],
+    },
+  ];
+  const old = movement("history-bench", "Dumbbell_Bench_Press", 27.5);
+  old.sets.forEach((t) => {
+    t.done = true;
+  });
+  s.workouts = [
+    {
+      id: "old-workout",
+      name: "Previous",
+      started: "2026-10-01T10:00:00Z",
+      finished: "2026-10-01T11:00:00Z",
+      notes: "",
+      movements: [old],
+    },
+  ];
+  s.active = null;
+  if (withStack) {
+    s.settings.weight = "lb";
+    s.equipment.push({
+      id: "lateral raise machine",
+      name: "Lateral machine",
+      confirmed: true,
+      unavailable: false,
     });
-    db.close();
-  }, withStack);
-  await page.reload();
+    s.custom.push({
+      id: "personal-lateral-machine",
+      name: "Lateral Raise Machine",
+      loadKind: "stack",
+      required: ["lateral raise machine"],
+      equipment: "machine",
+      level: "beginner",
+      category: "strength",
+      mode: "strength",
+      primaryMuscles: ["shoulders"],
+      secondaryMuscles: [],
+      images: [],
+      instructions: ["Use controlled movement."],
+      cues: ["Use controlled movement."],
+      mistakes: [],
+    });
+    const previous = movement("stack-history", "personal-lateral-machine", 30);
+    previous.sets.forEach((t) => {
+      t.done = true;
+    });
+    s.workouts[0].movements.push(previous);
+  }
+  await restoreJournal(page, s);
+
   await expect(
     page.getByRole("heading", { name: "Workout Buddy", exact: true, level: 1 }),
   ).toBeVisible();
 }
 async function waitForDraft(page: Page) {
-  await page.waitForFunction(
-    () =>
-      new Promise<boolean>((resolve) => {
-        const r = indexedDB.open("fitspoh", 1);
-        r.onsuccess = () => {
-          const db = r.result,
-            q = db.transaction("journal").objectStore("journal").get("state");
-          q.onsuccess = () => {
-            resolve(!!q.result?.buddy?.draft);
-            db.close();
-          };
-        };
-      }),
-  );
+  await expect
+    .poll(async () => !!(await read(page))?.buddy?.draft)
+    .toBeTruthy();
 }
 
 test("Buddy creates reviewable routines, requires explicit load choice, and survives backup and offline recovery", async ({
@@ -377,25 +346,10 @@ test("changing the source after drafting blocks a stale update", async ({
     .getByRole("button", { name: "Confirm choices & draft", exact: true })
     .click();
   await waitForDraft(page);
-  await page.evaluate(async () => {
-    const db = await new Promise<IDBDatabase>((resolve) => {
-      const r = indexedDB.open("fitspoh", 1);
-      r.onsuccess = () => resolve(r.result);
-    });
-    const tx = db.transaction("journal", "readwrite"),
-      store = tx.objectStore("journal"),
-      get = store.get("state");
-    get.onsuccess = () => {
-      const s = get.result;
-      s.plans[0].days[0].movements[0].sets[0].weight = 30;
-      store.put(s, "state");
-    };
-    await new Promise<void>((resolve) => {
-      tx.oncomplete = () => resolve();
-    });
-    db.close();
-  });
-  await page.reload();
+  const s = await read(page);
+  s.plans[0].days[0].movements[0].sets[0].weight = 30;
+  await restoreJournal(page, s);
+
   await page
     .getByRole("button", { name: "Review saved day update", exact: true })
     .click();
