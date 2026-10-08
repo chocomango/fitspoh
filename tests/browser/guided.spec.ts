@@ -1,5 +1,38 @@
 import { test, expect, type Page } from "@playwright/test";
 
+async function reloadSaved(page: Page) {
+  await expect(page.locator(".storage-status")).toContainText(
+    "Saved on this device",
+  );
+  await page.reload();
+}
+
+// Hold a real transaction ahead of automatic saves to exercise slow storage.
+async function delayJournalWrites(page: Page) {
+  await expect(page.locator(".storage-status")).toContainText(
+    "Saved on this device",
+  );
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("fitspoh", 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    const tx = db.transaction("journal", "readwrite");
+    const store = tx.objectStore("journal");
+    const until = performance.now() + 1000;
+    const keepBusy = () => {
+      const request = store.get("revision");
+      request.onsuccess = () => {
+        if (performance.now() < until) keepBusy();
+      };
+    };
+    tx.oncomplete = () => db.close();
+    tx.onabort = () => db.close();
+    keepBusy();
+  });
+}
+
 test("extra guided sets preserve set three and run before the next exercise", async ({
   page,
 }) => {
@@ -24,7 +57,7 @@ test("extra guided sets preserve set three and run before the next exercise", as
     .click();
   await expect(page.getByText(/Set 3 of 5/)).toBeVisible();
   await expect(page.getByLabel("Reps", { exact: true })).toHaveValue("9");
-  await page.reload();
+  await reloadSaved(page);
   await expect(page.getByText(/Set 3 of 5/)).toBeVisible();
   await expect(page.getByLabel("Weight (kg)", { exact: true })).toHaveValue(
     "30",
@@ -192,14 +225,14 @@ test("mobile companion edits days, remembers last time, saves entry, rests and f
   );
   await page.getByLabel("Weight (kg)", { exact: true }).fill("");
   await expect(page.getByText("Saved on this device").first()).toBeAttached();
-  await page.reload();
+  await reloadSaved(page);
   await expect(page.getByLabel("Weight (kg)", { exact: true })).toHaveValue("");
   await page
     .getByLabel("Weight (kg)", { exact: true })
     .pressSequentially("27.5");
   await page.getByLabel("Reps", { exact: true }).fill("9");
   await expect(page.getByText("Saved on this device").first()).toBeAttached();
-  await page.reload();
+  await reloadSaved(page);
   await expect(page.getByLabel("Weight (kg)", { exact: true })).toHaveValue(
     "27.5",
   );
@@ -208,7 +241,7 @@ test("mobile companion edits days, remembers last time, saves entry, rests and f
   await expect(
     page.getByRole("button", { name: "Start next set" }),
   ).toBeVisible();
-  await page.reload();
+  await reloadSaved(page);
   await expect(
     page.getByRole("button", { name: "Start next set" }),
   ).toBeVisible();
@@ -350,6 +383,7 @@ test("straight sets stay on one exercise and old entries remain editable after a
   await page
     .getByRole("button", { name: "Next exercise", exact: true })
     .click();
+  await delayJournalWrites(page);
   await page.getByLabel("Weight (kg)", { exact: true }).fill("32.5");
   await page
     .getByText("Back to a previous exercise / correct a set", { exact: true })
@@ -364,7 +398,7 @@ test("straight sets stay on one exercise and old entries remain editable after a
   await expect(page.getByLabel("Weight (kg)", { exact: true })).toHaveValue(
     "32.5",
   );
-  await page.reload();
+  await reloadSaved(page);
   await page
     .getByText("Back to a previous exercise / correct a set", { exact: true })
     .click();

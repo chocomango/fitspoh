@@ -104,7 +104,15 @@ The requested A–G scenarios are represented by the following executed tests. T
 | F: rapid actions                  | Repeated completion taps log one result; Undo keeps the original entry; subsequent reload/deletion/reorder tests check stable set identities and recovery.                                                                                 |
 | G: historical correction          | Edit weight, Undo, clear completed load, Undo, verify the concurrent active workout remains unchanged, then reload the corrected history; unit history reopen guards preserve corrections.                                                 |
 
+## CI reload follow-up
+
+A later CI run reported 71/72 browser scenarios passing: the straight-set correction test showed the correct 32.5 kg entry before reload but an older 25 kg entry afterward. The test reloaded without awaiting the asynchronous journal commit. Ten ordinary local repeats passed; holding a real IndexedDB read/write transaction ahead of the automatic saves reproduced restoration of an older weight after reload.
+
+`tests/browser/guided.spec.ts` now waits for the journal's **Saved on this device** status before every reload. The affected correction scenario retains a one-second transaction delay to exercise slow storage, without arbitrary sleeps or retries masking the assertions. Ten repeats with delayed storage passed. Application state, persistence behavior and the expected weight remain unchanged. This follow-up does not remove the previously documented risk of forced termination before a pending save commits.
+
 ## Remaining risks and coverage limits
+
+Follow-up validation: all 8 guided-workout browser scenarios passed, the delayed-storage correction scenario passed 10 consecutive repeats, lint passed, and `git diff --check` passed. The full 72-scenario suite was not rerun for this test-only follow-up; its earlier complete result is recorded above.
 
 - Existing invalid journals are blocked safely rather than silently rewritten. Recovery from such a journal needs a reviewed valid backup or targeted repair; this patch prevents new oversized entries.
 - A hard crash before IndexedDB commits can lose the most recent pending change. Tests cover reload after persistence, failed writes and conflicting tabs; they do not simulate operating-system termination at every transaction boundary.
