@@ -73,6 +73,7 @@ import {
   toStoredDistance,
   validateBackup,
   csvCell,
+  SET_LIMITS,
 } from "./domain.mjs";
 import { Chart, Empty, ExercisePhoto } from "./components";
 import { CornerFriend, CornerFriends } from "./CornerFriends";
@@ -83,7 +84,7 @@ import "./guided.css";
 import { GuidedWorkout } from "./GuidedWorkout";
 import { SetManager } from "./SetManager";
 import { setIssue } from "./workout-feedback.mjs";
-import { activePlan, switchWeightUnit } from "./mobile.mjs";
+import { activePlan, switchWeightUnit, switchDistanceUnit } from "./mobile.mjs";
 import {
   cleanWorkoutProgress,
   syncEditedInputs,
@@ -669,7 +670,7 @@ function App() {
         fn(w);
         syncEditedInputs(w, before);
       }
-    }, undo);
+    }, undo || !!historyEdit);
   const modifyDay = (fn: (d: Day) => void) =>
     update((s) => {
       const d = s.plans
@@ -1082,10 +1083,16 @@ function App() {
         .filter(
           (w) =>
             w.id !== currentWorkout?.id &&
-            w.movements.some((x) => x.exerciseId === m.exerciseId),
+            w.movements.some(
+              (x) =>
+                x.exerciseId === m.exerciseId && x.sets.some((set) => set.done),
+            ),
         )
         .sort((a, b) => b.started.localeCompare(a.started))[0]
-        ?.movements.find((x) => x.exerciseId === m.exerciseId);
+        ?.movements.find(
+          (x) =>
+            x.exerciseId === m.exerciseId && x.sets.some((set) => set.done),
+        );
       return (
         <article className="movement-card" key={m.id}>
           {m.optional && (
@@ -1309,7 +1316,7 @@ function App() {
               <span>{isPlan ? "REMOVE" : "DONE"}</span>
             </div>
             {m.sets.map((s, i) => {
-              const previous = last?.sets[i];
+              const previous = last?.sets[i]?.done ? last.sets[i] : undefined;
               return (
                 <div
                   className={`set-row ${s.done && !isPlan ? "set-done" : ""}`}
@@ -1347,7 +1354,7 @@ function App() {
                           ms[index].sets[i] = {
                             ...previous,
                             id: s.id,
-                            done: false,
+                            done: s.done,
                             skipped: false,
                             effort: undefined,
                             effortKind: undefined,
@@ -1399,6 +1406,7 @@ function App() {
                         label={`Set ${i + 1} reps`}
                         value={s.reps}
                         step={1}
+                        max={SET_LIMITS.reps}
                         onChange={(v) => {
                           if (s.done && Math.round(v) < 1)
                             notify(
@@ -1435,11 +1443,15 @@ function App() {
                             state.settings.distance,
                           )}
                           step={0.1}
+                          max={toDisplayDistance(
+                            SET_LIMITS.distance,
+                            state.settings.distance,
+                          )}
                           onChange={(v) =>
                             edit((ms) => {
-                              ms[index].sets[i].distance = toStoredDistance(
-                                v,
-                                state.settings.distance,
+                              ms[index].sets[i].distance = Math.min(
+                                SET_LIMITS.distance,
+                                toStoredDistance(v, state.settings.distance),
                               );
                             })
                           }
@@ -1731,6 +1743,7 @@ function App() {
                 label="Minimum target reps"
                 value={m.repMin}
                 step={1}
+                max={SET_LIMITS.reps}
                 onChange={(v) =>
                   edit((ms) => {
                     ms[index].repMin = Math.round(v);
@@ -1746,6 +1759,7 @@ function App() {
                 label="Maximum target reps"
                 value={m.repMax}
                 step={1}
+                max={SET_LIMITS.reps}
                 onChange={(v) =>
                   edit((ms) => {
                     ms[index].repMax = Math.max(
@@ -3495,7 +3509,7 @@ function App() {
                           >
                             <RotateCcw size={15} />
                             {historyEdit
-                              ? "Undo last set/removal"
+                              ? "Undo last history edit"
                               : `Undo${currentWorkout.undoActions?.at(-1)?.label ? `: ${currentWorkout.undoActions.at(-1)!.label}` : " last action"}`}
                           </button>
                         </div>
@@ -4132,7 +4146,7 @@ function App() {
                     value={state.settings.distance}
                     onChange={(e) =>
                       update((s) => {
-                        s.settings.distance = e.target.value as "km" | "mi";
+                        switchDistanceUnit(s, e.target.value as "km" | "mi");
                       })
                     }
                   >
@@ -4420,7 +4434,7 @@ function App() {
               className="ghost"
               onClick={() =>
                 update((s) => {
-                  s.timer = (s.timer ?? Date.now()) + 30000;
+                  s.timer = Math.max(Date.now(), s.timer ?? Date.now()) + 30000;
                 })
               }
             >
@@ -4838,12 +4852,14 @@ function NumberInput({
   onChange,
   step,
   onClear,
+  max = 100000,
 }: {
   label: string;
   value: number | undefined;
   onChange: (n: number) => void;
   step: number;
   onClear?: () => void;
+  max?: number;
 }) {
   return (
     <input
@@ -4851,7 +4867,7 @@ function NumberInput({
       className="number"
       type="number"
       min="0"
-      max="100000"
+      max={max}
       step={step}
       inputMode={step === 1 ? "numeric" : "decimal"}
       onFocus={(e) => e.currentTarget.select()}
@@ -4863,7 +4879,7 @@ function NumberInput({
           return;
         }
         const n = Number(e.target.value);
-        if (Number.isFinite(n)) onChange(Math.max(0, Math.min(100000, n)));
+        if (Number.isFinite(n)) onChange(Math.max(0, Math.min(max, n)));
       }}
     />
   );
@@ -4886,8 +4902,11 @@ function DurationInput({
         value={Math.floor(seconds / 60)}
         onChange={(e) =>
           onChange(
-            Math.max(0, Math.min(10080, Number(e.target.value))) * 60 +
-              (seconds % 60),
+            Math.min(
+              SET_LIMITS.seconds,
+              Math.max(0, Math.min(10080, Number(e.target.value))) * 60 +
+                (seconds % 60),
+            ),
           )
         }
       />
@@ -4901,8 +4920,11 @@ function DurationInput({
         value={seconds % 60}
         onChange={(e) =>
           onChange(
-            Math.floor(seconds / 60) * 60 +
-              Math.max(0, Math.min(59, Number(e.target.value))),
+            Math.min(
+              SET_LIMITS.seconds,
+              Math.floor(seconds / 60) * 60 +
+                Math.max(0, Math.min(59, Number(e.target.value))),
+            ),
           )
         }
       />

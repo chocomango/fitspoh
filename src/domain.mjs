@@ -1,4 +1,11 @@
 export const uid = () => globalThis.crypto.randomUUID();
+// Input bounds and journal validation must agree, including after unit conversion.
+export const SET_LIMITS = {
+  weight: 1e6,
+  reps: 10000,
+  seconds: 604800,
+  distance: 10000,
+};
 export function csvCell(value) {
   const text = String(value ?? "");
   const safe =
@@ -70,10 +77,10 @@ const unique = (arr) => new Set(arr.map((x) => x.id)).size === arr.length;
 const set = (s) =>
   s &&
   id(s.id) &&
-  numeric(s.weight) &&
-  numeric(s.reps, 10000) &&
-  numeric(s.seconds, 604800) &&
-  numeric(s.distance, 10000) &&
+  numeric(s.weight, SET_LIMITS.weight) &&
+  numeric(s.reps, SET_LIMITS.reps) &&
+  numeric(s.seconds, SET_LIMITS.seconds) &&
+  numeric(s.distance, SET_LIMITS.distance) &&
   ["working", "warmup", "drop", "failure"].includes(s.type) &&
   typeof s.done === "boolean" &&
   (s.skipped === undefined || typeof s.skipped === "boolean") &&

@@ -49,7 +49,7 @@ Opening a completed set offers **Restart this set** alongside correction: it mar
 
 Journal saves use atomic transactions and revision checks. A second tab cannot silently overwrite newer records; the recovery banner offers a local export and reload. Failed writes can be retried, and backup restore reports success only after committing. Keep regular downloaded backups.
 
-Quality checks: `npm test`, `npm run test:browser`, `npm run typecheck`, `npm run lint`, and `npm run build`. See [PRODUCT_REVIEW.md](PRODUCT_REVIEW.md) for product findings and [WORKOUT_FLOW_REVIEW.md](WORKOUT_FLOW_REVIEW.md) for mistake recovery cases and practical limits.
+Quality checks: `npm test`, `npm run test:browser`, `npm run typecheck`, `npm run lint`, and `npm run build`. See [UX_AUDIT.md](UX_AUDIT.md) for the comprehensive workflow matrix, prioritized fixes, verification results and remaining risks; [PRODUCT_REVIEW.md](PRODUCT_REVIEW.md) for earlier product findings; and [WORKOUT_FLOW_REVIEW.md](WORKOUT_FLOW_REVIEW.md) for mistake recovery cases and practical limits.
 
 Under **Plans**, tap **Add my prebuilt plan** for the personal Upper / Lower / Rest / Push / Pull / Legs / Rest sequence. It includes the supplied starting weights and progression/recovery notes without creating historical workout records. Adding it again opens the same editable plan. Rest days advance only when acknowledged; **Take extra rest** leaves the next workout unchanged. Optional exercises start skipped and can be included through **Overview → Guide this exercise**. Unknown loads remain zero with an explicit note to choose a load; placeholder set targets are labeled in the notes.
 

@@ -190,6 +190,181 @@ async function finishEarly(page: Page) {
   await expect(page.locator(".history-card")).toHaveCount(1);
 }
 
+test("Overview input limits keep the journal readable after reload", async ({
+  page,
+}) => {
+  await seed(page);
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
+  await page.getByLabel("Set 1 reps", { exact: true }).first().fill("100001");
+  await expect
+    .poll(async () => (await read(page)).active.movements[0].sets[0].reps)
+    .toBe(10000);
+  await page.reload();
+  await expect(
+    page.getByLabel("Set 1 reps", { exact: true }).first(),
+  ).toHaveValue("10000");
+  await expect(page.getByText("Saved on this device").first()).toBeVisible();
+});
+
+async function cardioSeed(page: Page) {
+  await seed(page);
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve) => {
+      const request = indexedDB.open("fitspoh", 1);
+      request.onsuccess = () => resolve(request.result);
+    });
+    const tx = db.transaction("journal", "readwrite");
+    const store = tx.objectStore("journal");
+    const request = store.get("state");
+    request.onsuccess = () => {
+      const state = request.result;
+      state.active.movements = [state.active.movements[0]];
+      state.active.movements[0].exerciseId = "Bicycling_Stationary";
+      state.settings.distance = "mi";
+      store.put(state, "state");
+    };
+    await new Promise<void>((resolve, reject) => {
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  });
+  await page.reload();
+  await expect(page.getByLabel("Distance (mi)", { exact: true })).toBeVisible();
+}
+
+test("distance drafts follow unit changes and survive navigation and reload", async ({
+  page,
+}) => {
+  await cardioSeed(page);
+  await page.getByLabel("Distance (mi)", { exact: true }).fill("2");
+  await expect
+    .poll(async () => (await read(page)).active.movements[0].sets[0].distance)
+    .toBeCloseTo(3.218688);
+  await page.goto("#settings");
+  await page
+    .getByRole("combobox", { name: "Distance unit", exact: true })
+    .selectOption("km");
+  await page.goto("#workout");
+  await expect(page.getByLabel("Distance (km)", { exact: true })).toHaveValue(
+    "3.22",
+  );
+  await page.reload();
+  await expect(page.getByLabel("Distance (km)", { exact: true })).toHaveValue(
+    "3.22",
+  );
+  expect((await read(page)).active.movements[0].sets[0].distance).toBeCloseTo(
+    3.218688,
+  );
+});
+
+test("guided miles and Overview duration stay within stored limits", async ({
+  page,
+}) => {
+  await cardioSeed(page);
+  await page.getByLabel("Distance (mi)", { exact: true }).fill("9000");
+  // Above the stored kilometre limit: retain the last valid value.
+  await expect(page.getByLabel("Distance (mi)", { exact: true })).toHaveValue(
+    "0",
+  );
+  await page.getByLabel("Distance (mi)", { exact: true }).fill("6000");
+  await expect
+    .poll(async () => (await read(page)).active.movements[0].sets[0].distance)
+    .toBeCloseTo(9656.064);
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
+  await page.getByLabel("Set 1 distance", { exact: true }).fill("100001");
+  await page.getByLabel("Duration seconds", { exact: true }).first().fill("59");
+  await page
+    .getByLabel("Duration minutes", { exact: true })
+    .first()
+    .fill("10080");
+  await expect
+    .poll(async () => (await read(page)).active.movements[0].sets[0])
+    .toMatchObject({ distance: 10000, seconds: 604800 });
+  await page.reload();
+  await expect(page.getByText("Saved on this device").first()).toBeVisible();
+  await expect(
+    page.getByLabel("Duration seconds", { exact: true }).first(),
+  ).toHaveValue("0");
+});
+
+test("copying a previous set keeps a recorded result complete and supports Undo", async ({
+  page,
+}) => {
+  await seed(page, { done: ["curl-0"], cursor: "curl-1", history: true });
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
+  await page.locator(".previous-copy").first().click();
+  await expect
+    .poll(async () => (await read(page)).active.movements[0].sets[0])
+    .toMatchObject({ id: "curl-0", done: true, weight: 40, reps: 12 });
+  await page
+    .getByRole("button", { name: "Undo last action", exact: true })
+    .click();
+  await expect
+    .poll(async () => (await read(page)).active.movements[0].sets[0])
+    .toMatchObject({ done: true, weight: 20, reps: 10 });
+});
+
+test("history corrections and cleared results can be undone without changing an active workout", async ({
+  page,
+}) => {
+  await seed(page, { done: ["curl-0"], cursor: "curl-1", history: true });
+  const active = (await read(page)).active;
+  await page.goto("#history");
+  await page
+    .locator(".history-card")
+    .getByRole("button", { name: /^View & edit/ })
+    .click();
+  await page.getByLabel("Set 1 weight", { exact: true }).fill("50");
+  await expect
+    .poll(
+      async () => (await read(page)).workouts[0].movements[0].sets[0].weight,
+    )
+    .toBe(50);
+  await page
+    .getByRole("button", { name: "Undo last history edit", exact: true })
+    .click();
+  await expect
+    .poll(
+      async () => (await read(page)).workouts[0].movements[0].sets[0].weight,
+    )
+    .toBe(40);
+  await page.getByLabel("Set 1 weight", { exact: true }).fill("");
+  await expect
+    .poll(async () => (await read(page)).workouts[0].movements[0].sets[0].done)
+    .toBe(false);
+  await page
+    .getByRole("button", { name: "Undo last history edit", exact: true })
+    .click();
+  await expect
+    .poll(async () => (await read(page)).workouts[0].movements[0].sets[0])
+    .toMatchObject({ done: true, weight: 40 });
+  expect(
+    (await read(page)).workouts[0].movements[0].sets[0].needsLoad,
+  ).toBeUndefined();
+  expect((await read(page)).active).toEqual(active);
+  await page.reload();
+  await expect(page.getByText("Saved on this device").first()).toBeVisible();
+  expect((await read(page)).workouts[0].movements[0].sets[0].weight).toBe(40);
+});
+
+test("extending an expired Overview rest timer starts thirty seconds from now", async ({
+  page,
+}) => {
+  await seed(page);
+  await page
+    .getByRole("button", { name: "Complete set & start rest", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Overview", exact: true }).click();
+  await page.clock.install();
+  await page.clock.fastForward(180000);
+  await expect(page.locator(".timer-bar")).toContainText("Rest complete");
+  await page.getByRole("button", { name: "+30s", exact: true }).click();
+  await expect(page.locator(".timer-bar")).toContainText("0:30");
+  await page.reload();
+  expect((await read(page)).timer).not.toBeNull();
+});
+
 test("skipping an exercise can be undone after reload without losing its draft or completed results", async ({
   page,
 }) => {

@@ -357,7 +357,7 @@
 }
 @media (max-width: 600px) {
   .guided-workout {
-    padding: 16px;
+    padding: 12px 16px 112px;
   }
   .guided-workout .eyebrow {
     font-size: 11px;

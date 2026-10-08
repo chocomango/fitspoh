@@ -6,6 +6,7 @@ import {
   weightIncrement,
   saveIncrement,
   switchWeightUnit,
+  switchDistanceUnit,
 } from "../src/mobile.mjs";
 import { validateBackup } from "../src/domain.mjs";
 import {
@@ -178,6 +179,60 @@ test("switching units converts unfinished input but preserves blank and stack en
   assert.equal(s.active.deferredInputs.b0.weight, "20");
   assert.equal(s.active.deferredInputs.b1.weight, "");
   assert.equal(s.active.movements[0].sets[0].weight, 20);
+});
+
+test("distance unit changes convert drafts and correction/Undo recovery without changing recorded distance", () => {
+  const s = state();
+  s.active = {
+    id: "work",
+    name: "Cardio",
+    started: "2026-10-06T01:00:00Z",
+    notes: "",
+    movements: [movement("a")],
+    guided: {
+      setId: "a1",
+      phase: "entry",
+      draft: { setId: "a1", values: { distance: "", seconds: "60" } },
+    },
+    deferredInputs: { a0: { distance: "1.609344" } },
+  };
+  s.active.movements[0].sets[0].distance = 1.609344;
+  s.active.movements[0].sets[0].done = true;
+  recordWorkoutAction(s, "Before correction");
+  beginCorrection(s, "a0", 100000);
+  s.active.guided.draft = { setId: "a0", values: { distance: "3.218688" } };
+  s.active.movements[0].sets[0].distance = 3.218688;
+  s.completionUndo = {
+    workoutId: "work",
+    workout: structuredClone(s.active),
+    remainingRestMs: null,
+  };
+  s.workoutRemovalUndo = {
+    workout: structuredClone(s.active),
+    wasActive: true,
+    remainingRestMs: null,
+  };
+  const recorded = structuredClone(s.active.movements);
+  switchDistanceUnit(s, "mi");
+  assert.equal(s.active.guided.draft.values.distance, "2");
+  assert.equal(s.active.guided.editing.deferredValues.distance, "1");
+  assert.equal(s.active.guided.editing.returnGuided.draft.values.distance, "");
+  assert.equal(
+    s.active.undoActions[0].snapshot.deferredInputs.a0.distance,
+    "1",
+  );
+  for (const recovery of [s.completionUndo, s.workoutRemovalUndo]) {
+    assert.equal(recovery.workout.guided.draft.values.distance, "2");
+    assert.deepEqual(recovery.workout.movements, recorded);
+  }
+  assert.deepEqual(s.active.movements, recorded);
+  cancelCorrection(s, 110000);
+  assert.equal(s.active.movements[0].sets[0].distance, 1.609344);
+  assert.equal(s.active.deferredInputs.a0.distance, "1");
+  assert.equal(s.active.guided.draft.values.distance, "");
+  switchDistanceUnit(s, "km");
+  assert.equal(s.active.deferredInputs.a0.distance, "1.61");
+  assert.equal(s.active.movements[0].sets[0].distance, 1.609344);
 });
 
 test("switching units converts saved return drafts and original correction input before cancel", () => {

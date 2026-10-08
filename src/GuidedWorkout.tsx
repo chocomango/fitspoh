@@ -32,6 +32,7 @@ import {
   displayLoad,
   storedLoad,
   loadUnit,
+  SET_LIMITS,
 } from "./domain.mjs";
 type Props = {
   state: State;
@@ -303,6 +304,8 @@ export function GuidedWorkout({
             : key === "distance"
               ? toStoredDistance(raw, state.settings.distance)
               : raw;
+        if (key !== "effort")
+          target[key] = Math.min(SET_LIMITS[key], target[key]);
         if (key === "weight" && !target.done) target.needsLoad = text === "";
         if (key === "effort" && state.settings.effort !== "off")
           target.effortKind = state.settings.effort;
@@ -775,18 +778,21 @@ export function GuidedWorkout({
                     {field(
                       "weight",
                       `Weight (${loadUnit(state.settings.weight, e)})`,
-                      1000000,
+                      displayLoad(SET_LIMITS.weight, state.settings.weight, e),
                     )}
-                    {field("reps", "Reps", 10000)}
+                    {field("reps", "Reps", SET_LIMITS.reps)}
                   </>
                 ) : (
                   <>
-                    {field("seconds", "Duration (seconds)", 604800)}
+                    {field("seconds", "Duration (seconds)", SET_LIMITS.seconds)}
                     {e.mode === "cardio" &&
                       field(
                         "distance",
                         `Distance (${state.settings.distance})`,
-                        10000,
+                        toDisplayDistance(
+                          SET_LIMITS.distance,
+                          state.settings.distance,
+                        ),
                       )}
                   </>
                 )}

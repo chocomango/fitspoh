@@ -1,4 +1,4 @@
-import { displayLoad, storedLoad } from "./domain.mjs";
+import { displayLoad, storedLoad, toDisplayDistance } from "./domain.mjs";
 import { preserveGuidedDraft } from "./workout-actions.mjs";
 
 /** @param {import('./types').State} state */
@@ -28,6 +28,19 @@ export function saveIncrement(state, exercise, value) {
 }
 export function switchWeightUnit(state, unit, lookup) {
   state.settings.weight = unit;
+  convertWorkoutInputs(state, "weight", (value, exerciseId) =>
+    displayLoad(value, unit, lookup(exerciseId)),
+  );
+}
+
+export function switchDistanceUnit(state, unit) {
+  state.settings.distance = unit;
+  convertWorkoutInputs(state, "distance", (value) =>
+    toDisplayDistance(value, unit),
+  );
+}
+
+function convertWorkoutInputs(state, key, display) {
   function convertInputs(workout, actionSet) {
     const entries = Object.entries(workout.deferredInputs ?? {});
     if (workout.guided?.draft)
@@ -43,30 +56,26 @@ export function switchWeightUnit(state, unit, lookup) {
         entries.push([
           draft.setId,
           draft.values,
-          draft.setId === snapshot.setId ? snapshot.original.weight : undefined,
+          draft.setId === snapshot.setId ? snapshot.original[key] : undefined,
         ]);
       }
       if (snapshot.deferredValues)
         entries.push([
           snapshot.setId,
           snapshot.deferredValues,
-          snapshot.original.weight,
+          snapshot.original[key],
         ]);
     }
-    for (const [setId, values, originalWeight] of entries) {
-      if (values.weight === undefined || values.weight === "") continue;
+    for (const [setId, values, originalValue] of entries) {
+      if (values[key] === undefined || values[key] === "") continue;
       const movement = workout.movements.find((m) =>
         m.sets.some((t) => t.id === setId),
       );
       const set = movement?.sets.find((t) => t.id === setId);
       if (set)
-        values.weight = String(
+        values[key] = String(
           Number(
-            displayLoad(
-              originalWeight ?? set.weight,
-              unit,
-              lookup(movement.exerciseId),
-            ).toFixed(2),
+            display(originalValue ?? set[key], movement.exerciseId).toFixed(2),
           ),
         );
     }
