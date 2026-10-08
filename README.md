@@ -74,6 +74,8 @@ Review and edit exercise order, replacements, sets, reps, loads, rest, and notes
 
 ## Persistence, backups, and offline use
 
+On iPhone, Safari tabs cannot receive web push: supported iOS versions require a Home Screen web app and permission requested from a user tap. Use Safari's **Share → Add to Home Screen**, then open Fitspoh from that icon. This app currently has no push server or native scheduled notifications, so installation alone does not enable locked-screen rest alerts. **Enable rest alerts** enables available foreground sound/notification support; use the iPhone Clock timer for rest while locked. See [Apple's Home Screen web push requirements](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/).
+
 - All records stay in the current browser profile's IndexedDB database. No account, analytics, server database, or automatic device synchronization.
 - Unfinished sessions, set entries, guided progress, and rest deadlines save automatically and resume after reopening. Rest alerts occur while the app is open or when it resumes; optional sound and system notifications can be enabled in Workout settings. Alerts may be delayed when the browser suspends the app and cannot reliably ring with the browser closed. Use the phone timer for reliable locked-screen alerts. Save errors are displayed. An unreadable database is not overwritten with an empty journal.
 - **Export full backup** downloads a versioned JSON file including plans, workouts, body entries, equipment, custom exercises, notes, and preferences. Keep copies outside browser storage. Clearing site data or using a different browser/device does not preserve these records.

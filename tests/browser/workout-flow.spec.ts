@@ -307,8 +307,9 @@ test("main set action stays reachable on narrow phones in both themes", async ({
   for (const theme of ["focus", "sumikko"]) {
     if (theme === "sumikko")
       await page.getByRole("switch", { name: "Sumikko Gurashi theme" }).click();
-    for (const width of [320, 390, 430]) {
-      await page.setViewportSize({ width, height: 640 });
+    for (const width of [320, 390, 430, 440]) {
+      // 440 × 763 is Playwright's iPhone 16 Pro Max browser viewport.
+      await page.setViewportSize({ width, height: width === 440 ? 763 : 640 });
       await page.evaluate(() => window.scrollTo(0, 0));
       expect(
         await page.evaluate(
@@ -327,7 +328,7 @@ test("main set action stays reachable on narrow phones in both themes", async ({
       const nav = (await page.locator(".mobile-nav").boundingBox())!;
       expect(action.height).toBeGreaterThanOrEqual(44);
       expect(action.y + action.height).toBeLessThanOrEqual(nav.y);
-      if (width === 390) {
+      if (width === 390 || width === 440) {
         for (const input of ["Weight (kg)", "Reps"]) {
           const field = page.getByLabel(input, { exact: true });
           await expect(field).toBeInViewport();

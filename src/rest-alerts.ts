@@ -1,22 +1,63 @@
 let audio: AudioContext | undefined;
 
+function appleMobile() {
+  return (
+    /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+    (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1)
+  );
+}
+
+function homeScreen() {
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true
+  );
+}
+
+export function restAlertHint() {
+  return appleMobile()
+    ? "On iPhone, phone notifications require opening the app from a Home Screen icon. Safari Share → Add to Home Screen installs it. This version cannot deliver rest alerts while the app is suspended or the phone is locked; use your phone timer."
+    : "Sound plays while the app is running. Phone notifications may be delayed in the background. For alerts with the browser closed or phone locked, use your phone timer.";
+}
+
 export async function enableRestAlerts() {
-  try {
-    audio ??= new AudioContext();
-    await audio.resume();
-  } catch {
-    return "Sound is unavailable in this browser. Use your phone timer for alerts.";
+  // Start both gated APIs during the tap, before yielding user activation.
+  const sound = (async () => {
+    try {
+      audio ??= new AudioContext();
+      await audio.resume();
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  let permission: Promise<NotificationPermission> | undefined;
+  const needsInstall = appleMobile() && !homeScreen();
+  if (
+    !needsInstall &&
+    "Notification" in window &&
+    "serviceWorker" in navigator
+  ) {
+    try {
+      permission = Notification.requestPermission().catch(
+        () => "default" as const,
+      );
+    } catch {
+      /* Sound remains available when notification permissions fail. */
+    }
   }
-  if (!("Notification" in window) || !("serviceWorker" in navigator))
-    return "Sound enabled. Phone notifications are unavailable in this browser.";
-  try {
-    const permission = await Notification.requestPermission();
-    return permission === "granted"
-      ? "Sound and phone notifications enabled while the app is running. Background alerts may be delayed."
-      : "Sound enabled. Phone notifications were not allowed; check your browser settings.";
-  } catch {
-    return "Sound enabled. Phone notifications are unavailable here.";
-  }
+  const soundEnabled = await sound;
+  const soundMessage = soundEnabled
+    ? "Sound enabled while the app is open."
+    : "Sound is unavailable in this browser.";
+  if (needsInstall)
+    return `${soundMessage} On iPhone, open the app from a Home Screen icon to request notifications. Use your phone timer for locked-screen rest alerts.`;
+  if (!permission)
+    return `${soundMessage} Phone notifications are unavailable here. Use your phone timer for locked-screen alerts.`;
+  const result = await permission;
+  return result === "granted"
+    ? `${soundMessage} Notifications allowed while the app runs. Locked-screen rest alerts require your phone timer.`
+    : `${soundMessage} Phone notifications were not allowed; check your browser settings.`;
 }
 
 export async function playRestAlert() {
@@ -36,6 +77,10 @@ export async function playRestAlert() {
         oscillator.stop(start + 0.26);
       }
     }
+  } catch {
+    // Audio failure must not prevent the separate notification attempt.
+  }
+  try {
     if (
       "Notification" in window &&
       Notification.permission === "granted" &&

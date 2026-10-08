@@ -4,7 +4,7 @@ import { currentStep, workoutQueue } from "./guided";
 import { postpone, weightIncrement, saveIncrement } from "./mobile.mjs";
 import { useWorkoutWakeLock } from "./useWorkoutWakeLock";
 import { setIssue, sessionComparisons } from "./workout-feedback.mjs";
-import { enableRestAlerts } from "./rest-alerts";
+import { enableRestAlerts, restAlertHint } from "./rest-alerts";
 import {
   guideSet,
   beginCorrection,
@@ -1243,13 +1243,9 @@ export function GuidedWorkout({
               notify(await enableRestAlerts());
             }}
           >
-            Enable sound & phone notifications
+            Enable rest alerts
           </button>
-          <p className="hint">
-            Sound plays while the app is running. Phone notifications may be
-            delayed in the background. For reliable alerts with the browser
-            closed or phone locked, use your phone timer.
-          </p>
+          <p className="hint">{restAlertHint()}</p>
           <label className="toggle-row">
             <input
               type="checkbox"

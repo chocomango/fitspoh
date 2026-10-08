@@ -179,6 +179,77 @@ async function expand(page: Page, name: string) {
     await summary.click();
 }
 
+test("rest notification permission starts during the tap before audio setup finishes", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    (window as any).requestedRestPermission = false;
+    (window as any).AudioContext = class {
+      resume() {
+        return new Promise<void>((resolve) => {
+          (window as any).finishRestAudio = resolve;
+        });
+      }
+    };
+    Object.defineProperty(Notification, "requestPermission", {
+      value: () => {
+        (window as any).requestedRestPermission = true;
+        return Promise.resolve("granted");
+      },
+    });
+  });
+  await seed(page);
+  await expand(page, "Workout settings");
+  await page
+    .getByRole("button", { name: "Enable rest alerts", exact: true })
+    .click();
+  expect(
+    await page.evaluate(() => (window as any).requestedRestPermission),
+  ).toBe(true);
+  await page.evaluate(() => (window as any).finishRestAudio());
+  await expect(page.locator(".toast")).toContainText(
+    "Notifications allowed while the app runs",
+  );
+});
+
+test("iPhone Safari explains Home Screen requirements without asking for unsupported notifications", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "userAgent", {
+      value:
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 18_4 like Mac OS X) AppleWebKit/605.1.15 Version/18.4 Mobile/15E148 Safari/604.1",
+    });
+    (window as any).requestedRestPermission = false;
+    (window as any).AudioContext = class {
+      resume() {
+        return Promise.resolve();
+      }
+    };
+    Object.defineProperty(Notification, "requestPermission", {
+      value: () => {
+        (window as any).requestedRestPermission = true;
+        return Promise.resolve("granted");
+      },
+    });
+  });
+  await page.setViewportSize({ width: 440, height: 956 });
+  await seed(page);
+  await expand(page, "Workout settings");
+  await expect(
+    page.getByText(/Safari Share → Add to Home Screen/),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Enable rest alerts", exact: true })
+    .click();
+  await expect(page.locator(".toast")).toContainText(
+    "Use your phone timer for locked-screen rest alerts",
+  );
+  expect(
+    await page.evaluate(() => (window as any).requestedRestPermission),
+  ).toBe(false);
+});
+
 async function setIds(page: Page) {
   return (await read(page)).active.movements[0].sets.map((set: any) => set.id);
 }

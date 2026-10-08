@@ -118,9 +118,19 @@ A subsequent CI run timed out inside `workout-recovery.spec.ts` fixture setup, b
 
 Recovery and cardio fixtures now construct data outside the transaction and load it through the existing validated backup restore UI, waiting for the restore to commit and its dialog to close. Journal reads reject aborts and close connections in `finally`. This removes the bespoke write callback and keeps React state and journal revision synchronized. The reported warm-up scenario passed 10 consecutive local repeats after the change. The precise cause of the CI transaction stall remains unconfirmed without its browser/runtime diagnostics; no retries or increased timeout were added.
 
+Recovery follow-up validation: `npm run build` passed locally; the complete browser suite passed 72/72 both before and after the fixture change (final run: 2.2 minutes); the warm-up scenario passed 10 repeats; lint, formatting and `git diff --check` passed. Only test setup and audit documentation changed.
+
+## iPhone alert follow-up
+
+Reviewed the iPhone 16 Pro Max report against [WebKit's Home Screen web push requirements](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/). The prior notification permission request ran after awaiting audio initialization, risking loss of the direct tap required for permission. Audio initialization and the permission request now start during the same synchronous tap. Audio errors do not suppress the separate notification attempt. Safari-tab users receive Home Screen installation guidance instead of an unsupported permission request; the button and help text distinguish foreground alerts from unavailable locked-screen rest alerts.
+
+Two new browser regressions cover permission ordering with audio held pending and the iPhone Safari-tab fallback. The layout check also uses Playwright's iPhone 16 Pro Max viewport of 440 × 763, checking inputs and the completion action in both themes. These are Chromium automation with mocked capabilities; neither physical iPhone notification delivery nor Safari keyboard/notch behavior has been verified. The specific reported UI problem remains unspecified and needs the affected screen and symptom before a targeted layout change.
+
+Locked-screen alerts require a different delivery architecture. Standards-based [web push needs a push subscription and sender](https://developer.apple.com/documentation/usernotifications/sending-web-push-notifications-in-web-apps-and-browsers), while an iOS app/wrapper can use [scheduled local notifications](https://developer.apple.com/documentation/usernotifications/scheduling-a-notification-locally-from-your-app) without a push server. Neither architecture was added in this change. The current timer cannot run reliably while Safari is suspended.
+
 ## Remaining risks and coverage limits
 
-Recovery follow-up validation: `npm run build` passed locally; the complete browser suite passed 72/72 both before and after the fixture change (final run: 2.2 minutes); the warm-up scenario passed 10 repeats; lint, formatting and `git diff --check` passed. Only test setup and audit documentation changed.
+iPhone follow-up validation: production build and lint passed; all 74 Chromium browser scenarios passed in the final local run (2.3 minutes), including both new alert tests and the additional iPhone-size layout checks. These results do not establish physical Safari notification delivery or resolve an unspecified device UI symptom.
 
 - Existing invalid journals are blocked safely rather than silently rewritten. Recovery from such a journal needs a reviewed valid backup or targeted repair; this patch prevents new oversized entries.
 - A hard crash before IndexedDB commits can lose the most recent pending change. Tests cover reload after persistence, failed writes and conflicting tabs; they do not simulate operating-system termination at every transaction boundary.
