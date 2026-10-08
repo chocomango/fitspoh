@@ -17,7 +17,14 @@ import {
   undoLastSet,
   preserveGuidedDraft,
   nextStep,
+  insertWorkoutSet,
+  moveWorkoutSet,
+  deleteWorkoutSet,
+  restartWorkoutSet,
+  undoWorkoutAction,
+  recordWorkoutAction,
 } from "./workout-actions.mjs";
+import { SetManager } from "./SetManager";
 import { ExercisePhoto } from "./components";
 import {
   toDisplayDistance,
@@ -25,7 +32,6 @@ import {
   displayLoad,
   storedLoad,
   loadUnit,
-  uid,
 } from "./domain.mjs";
 type Props = {
   state: State;
@@ -137,10 +143,11 @@ export function GuidedWorkout({
       : `${set.seconds}s${metadata?.mode === "cardio" ? ` · ${number(toDisplayDistance(set.distance, state.settings.distance))} ${state.settings.distance}` : ""}`;
   const complete = () => {
     if (!step || !e) return;
+    const missingLoad = step.set.needsLoad || g?.draft?.values.weight === "";
     const issue = setIssue(
       {
         ...step.set,
-        needsLoad: step.set.needsLoad || g?.draft?.values.weight === "",
+        needsLoad: missingLoad,
       },
       e,
     );
@@ -150,7 +157,7 @@ export function GuidedWorkout({
       document
         .getElementById(
           "guided-" +
-            (step.set.needsLoad
+            (missingLoad
               ? "weight"
               : e.mode === "strength"
                 ? "reps"
@@ -198,7 +205,8 @@ export function GuidedWorkout({
       current.set.skipped = false;
       const next = nextStep(active, current.set.id);
       if (next) {
-        const prior = [...next.movement.sets]
+        const prior = next.movement.sets
+          .slice(0, next.index)
           .reverse()
           .find(
             (s) =>
@@ -239,7 +247,8 @@ export function GuidedWorkout({
     update((s) => {
       const active = s.active!;
       const current = currentStep(active);
-      if (!current) return;
+      if (!current || current.set.id !== step?.set.id) return;
+      recordWorkoutAction(s, "Skip exercise");
       preserveGuidedDraft(active);
       current.movement.sets
         .filter((x) => !x.done)
@@ -373,41 +382,91 @@ export function GuidedWorkout({
         active.pausedAt !== undefined
       )
         return;
-      const source =
-        target.sets.find((set) => set.id === step?.set.id) ??
-        target.sets.at(-1);
-      if (!source) return;
-      const set: SetLog = {
-        ...source,
-        id: uid(),
-        done: false,
-        skipped: false,
-        effort: undefined,
-        effortKind: undefined,
-        type: warmup ? "warmup" : "working",
-        ...(warmup ? { weight: 0, needsLoad: e?.mode === "strength" } : {}),
-      };
+      const source = warmup
+        ? target.sets.find((set) => set.type !== "warmup")
+        : target.sets.at(-1);
+      const set = insertWorkoutSet(
+        s,
+        target.id,
+        source?.id,
+        warmup && source ? "before" : "after",
+        warmup ? "warmup" : "working",
+      );
+      if (!set) return;
       if (warmup) {
-        const index = target.sets.findIndex((set) => set.id === step?.set.id);
-        target.sets.splice(Math.max(0, index), 0, set);
-      } else target.sets.push(set);
-      if (navigate || warmup || !step || source.done) {
+        set.weight = 0;
+        set.needsLoad = lookup(target.exerciseId)?.mode === "strength";
+      }
+      if (navigate || warmup || !step || source?.done) {
         guideSet(s, set.id);
-        if (!warmup && source.done && target.rest > 0) {
-          active.guided = { ...active.guided, phase: "rest" };
+        if (!warmup && source?.done && target.rest > 0) {
+          active.guided = {
+            ...active.guided,
+            lastSetId: source.id,
+            phase: "rest",
+          };
           s.timer = Date.now() + target.rest * 1000;
         }
       }
     });
     notify(
       warmup
-        ? "Warm-up added. Choose a comfortable load."
+        ? "Warm-up added at the beginning of this exercise. Choose its load."
         : "Added another set to this exercise.",
     );
   };
+  const restart = (setId: string) => {
+    update((s) => {
+      if (s.active?.guided?.editing?.setId === setId) cancelCorrection(s);
+      restartWorkoutSet(s, setId);
+    });
+    setEntryError("");
+    notify("Set reopened. Start here; your other completed sets stay saved.");
+  };
+  const manager = (movement: Movement) => (
+    <SetManager
+      key={movement.id}
+      movement={movement}
+      name={lookup(movement.exerciseId)?.name ?? "Exercise"}
+      selectedId={step?.set.id}
+      disabled={correcting || paused}
+      result={(set) => result(set, lookup(movement.exerciseId))}
+      visit={visit}
+      restart={restart}
+      move={(id, before) =>
+        update((s) => {
+          moveWorkoutSet(s, movement.id, id, before);
+        })
+      }
+      remove={(id) => {
+        update((s) => {
+          deleteWorkoutSet(s, movement.id, id);
+        });
+        notify("Set deleted. Use Undo to restore it.");
+      }}
+      insert={(sourceId, placement, type) => {
+        update((s) => {
+          const set = insertWorkoutSet(
+            s,
+            movement.id,
+            sourceId,
+            placement,
+            type,
+          );
+          if (set && type === "warmup") {
+            set.weight = 0;
+            set.needsLoad = lookup(movement.exerciseId)?.mode === "strength";
+          }
+        });
+        notify("Set inserted at the position you chose.");
+      }}
+    />
+  );
   return (
     <section className="guided-workout panel" aria-label="Guided workout">
-      <div className="section-title">
+      <div
+        className={`section-title ${w.undoActions?.length ? "has-undo" : ""}`}
+      >
         <strong>{w.name}</strong>
         <button
           className="secondary"
@@ -421,6 +480,23 @@ export function GuidedWorkout({
         >
           Overview
         </button>
+        {!!w.undoActions?.length && (
+          <button
+            className="secondary"
+            aria-label="Undo last action"
+            title={"Undo: " + w.undoActions.at(-1)?.label}
+            disabled={correcting || paused}
+            onClick={() => {
+              update((s) => {
+                undoWorkoutAction(s);
+              });
+              setEntryError("");
+              setBusy(false);
+            }}
+          >
+            Undo
+          </button>
+        )}
         {!paused && (
           <button
             className="secondary"
@@ -501,6 +577,7 @@ export function GuidedWorkout({
                       : "Unfinished"}
                 </p>
               ))}
+              {manager(m)}
               {comparisons
                 .filter(
                   (row) =>
@@ -717,15 +794,23 @@ export function GuidedWorkout({
                   field("effort", state.settings.effort, 10)}
               </div>
               {correcting ? (
-                <button
-                  className="secondary"
-                  onClick={() => {
-                    update((s) => cancelCorrection(s));
-                    setEntryError("");
-                  }}
-                >
-                  Cancel correction
-                </button>
+                <div className="guided-quick-actions">
+                  <button
+                    className="secondary"
+                    onClick={() => {
+                      update((s) => cancelCorrection(s));
+                      setEntryError("");
+                    }}
+                  >
+                    Cancel correction
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() => restart(step.set.id)}
+                  >
+                    Restart this set
+                  </button>
+                </div>
               ) : (
                 <div className="guided-quick-actions">
                   <button
@@ -737,7 +822,13 @@ export function GuidedWorkout({
                   <button
                     className="ghost"
                     onClick={() => {
-                      update((s) => skipCurrentSet(s));
+                      update((s) => {
+                        if (
+                          s.active &&
+                          currentStep(s.active)?.set.id === step.set.id
+                        )
+                          skipCurrentSet(s);
+                      });
                       setEntryError("");
                     }}
                   >
@@ -829,6 +920,7 @@ export function GuidedWorkout({
               </button>
             ))}
           </div>
+          {manager(step.movement)}
           <details className="workout-actions">
             <summary>Workout actions</summary>
             <div className="guided-quick-actions">
@@ -983,11 +1075,14 @@ export function GuidedWorkout({
                     ? previous.sets[step.index]
                     : [...previous.sets].reverse().find((set) => set.done);
                   if (!source) return;
-                  change((active) => {
+                  update((s) => {
+                    const active = s.active;
+                    if (!active) return;
                     const target = active.movements
                       .flatMap((m) => m.sets)
                       .find((set) => set.id === step.set.id);
                     if (!target) return;
+                    recordWorkoutAction(s, "Use last session values");
                     Object.assign(target, {
                       weight: source.weight,
                       reps: source.reps,
@@ -1126,6 +1221,8 @@ export function GuidedWorkout({
               onChange={(ev) =>
                 update((s) => {
                   if (!s.active) return;
+                  if (s.active.setOrder === ev.target.value) return;
+                  recordWorkoutAction(s, "Change exercise order");
                   s.active.setOrder = ev.target.value as "exercise" | "circuit";
                 })
               }
@@ -1217,18 +1314,22 @@ export function GuidedWorkout({
           )}
         </details>
       )}
-      {!paused && !correcting && g?.undo && (
-        <button
-          className="secondary"
-          onClick={() => {
-            update((s) => undoLastSet(s));
-            setEntryError("");
-            notify("Set restored. Your other entries are kept.");
-          }}
-        >
-          {g.undo.kind === "skip" ? "Undo skipped set" : "Undo completed set"}
-        </button>
-      )}
+      {!paused &&
+        !correcting &&
+        g?.undo &&
+        (!w.undoActions?.length ||
+          w.undoActions.at(-1)?.set?.setId === g.undo.setId) && (
+          <button
+            className="secondary"
+            onClick={() => {
+              update((s) => undoLastSet(s));
+              setEntryError("");
+              notify("Set restored. Your other entries are kept.");
+            }}
+          >
+            {g.undo.kind === "skip" ? "Undo skipped set" : "Undo completed set"}
+          </button>
+        )}
     </section>
   );
 }

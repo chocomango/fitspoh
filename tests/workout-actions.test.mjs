@@ -16,6 +16,12 @@ import {
   undoLastSet,
   cleanWorkoutProgress,
   syncEditedInputs,
+  recordWorkoutAction,
+  undoWorkoutAction,
+  insertWorkoutSet,
+  deleteWorkoutSet,
+  moveWorkoutSet,
+  restartWorkoutSet,
 } from "../src/workout-actions.mjs";
 
 function session() {
@@ -359,4 +365,312 @@ test("overview edits clear changed raw fields while preserving other unfinished 
   syncEditedInputs(state.active, beforeReps);
   assert.equal(state.active.guided.draft, undefined);
   assert.equal(state.active.deferredInputs.a0, undefined);
+});
+
+test("insertion and reordering preserve set identities and can be undone after reload", () => {
+  const state = session();
+  getSet(state, "a0").done = true;
+  state.active.guided = {
+    setId: "a1",
+    phase: "entry",
+    draft: { setId: "a1", values: { reps: "" } },
+  };
+  const warmup = insertWorkoutSet(state, "a", "a1", "before", "warmup", 100000);
+  assert.equal(warmup.type, "warmup");
+  assert.equal(warmup.done, false);
+  assert.deepEqual(
+    state.active.movements[0].sets.map((s) => s.id),
+    ["a0", warmup.id, "a1", "a2"],
+  );
+  assert.equal(currentStep(state.active).set.id, "a1");
+  assert.equal(moveWorkoutSet(state, "a", "a2", warmup.id, 110000), true);
+  assert.deepEqual(
+    state.active.movements[0].sets.map((s) => s.id),
+    ["a0", "a2", warmup.id, "a1"],
+  );
+  assert.equal(moveWorkoutSet(state, "a", "a0", "b0"), false);
+  const reloaded = validateBackup(JSON.parse(JSON.stringify(state)));
+  assert.equal(undoWorkoutAction(reloaded, 200000), true);
+  assert.deepEqual(
+    reloaded.active.movements[0].sets.map((s) => s.id),
+    ["a0", warmup.id, "a1", "a2"],
+  );
+  assert.equal(undoWorkoutAction(reloaded, 210000), true);
+  assert.deepEqual(
+    reloaded.active.movements[0].sets.map((s) => s.id),
+    ["a0", "a1", "a2"],
+  );
+  assert.deepEqual(reloaded.active.guided.draft.values, { reps: "" });
+  assert.equal(getSet(reloaded, "a0").done, true);
+  assert.equal(undoWorkoutAction(reloaded), false);
+});
+
+test("deleting current and final sets safely advances, retains empty exercise, and restores drafts", () => {
+  const state = session();
+  state.active.guided.draft = { setId: "a0", values: { weight: "" } };
+  state.active.deferredInputs = { a0: { weight: "" }, b0: { reps: "9" } };
+  state.timer = 190000;
+  assert.equal(deleteWorkoutSet(state, "a", "a0", 100000), true);
+  assert.equal(currentStep(state.active).set.id, "a1");
+  assert.equal(state.active.deferredInputs.a0, undefined);
+  assert.equal(state.timer, null);
+  assert.equal(deleteWorkoutSet(state, "a", "a1", 100000), true);
+  assert.equal(deleteWorkoutSet(state, "a", "a2", 100000), true);
+  assert.equal(state.active.movements[0].sets.length, 0);
+  assert.equal(currentStep(state.active).set.id, "b0");
+  let reloaded = validateBackup(JSON.parse(JSON.stringify(state)));
+  assert.equal(undoWorkoutAction(reloaded, 200000), true);
+  assert.equal(undoWorkoutAction(reloaded, 210000), true);
+  assert.equal(undoWorkoutAction(reloaded, 220000), true);
+  assert.equal(currentStep(reloaded.active).set.id, "a0");
+  assert.equal(reloaded.timer, 310000);
+  assert.deepEqual(reloaded.active.guided.draft.values, { weight: "" });
+  assert.deepEqual(reloaded.active.deferredInputs.b0, { reps: "9" });
+  reloaded.active.movements = [reloaded.active.movements[0]];
+  cleanWorkoutProgress(reloaded.active);
+  for (const set of [...reloaded.active.movements[0].sets])
+    deleteWorkoutSet(reloaded, "a", set.id, 220000);
+  assert.equal(reloaded.active.guided.phase, "summary");
+  assert.equal(currentStep(reloaded.active), undefined);
+  const added = insertWorkoutSet(
+    reloaded,
+    "a",
+    undefined,
+    "after",
+    "working",
+    230000,
+  );
+  assert.equal(currentStep(reloaded.active).set.id, added.id);
+  assert.doesNotThrow(() => validateBackup(reloaded));
+});
+
+test("restart clears only selected completion and generic undo keeps later results and input", () => {
+  const state = session();
+  getSet(state, "a0").done = true;
+  getSet(state, "a1").done = true;
+  state.active.guided = { setId: "a2", phase: "rest", lastSetId: "a1" };
+  state.timer = 190000;
+  assert.equal(restartWorkoutSet(state, "a0", 100000), true);
+  const undoCount = state.active.undoActions.length;
+  assert.equal(restartWorkoutSet(state, "a0", 100001), false);
+  assert.equal(state.active.undoActions.length, undoCount);
+  assert.equal(getSet(state, "a0").done, false);
+  assert.equal(getSet(state, "a1").done, true);
+  assert.equal(currentStep(state.active).set.id, "a0");
+  assert.equal(state.timer, null);
+  state.active.guided.draft = { setId: "a0", values: { reps: "9" } };
+  getSet(state, "b0").weight = 35;
+  assert.equal(undoWorkoutAction(state, 200000), true);
+  assert.equal(getSet(state, "a0").done, true);
+  assert.equal(getSet(state, "a1").done, true);
+  assert.equal(getSet(state, "b0").weight, 35);
+  assert.equal(currentStep(state.active).set.id, "a2");
+  assert.equal(state.timer, 290000);
+  assert.doesNotThrow(() => validateBackup(state));
+});
+
+test("completion and skip support multiple undo steps without losing later typed input", () => {
+  const state = session();
+  rememberSetUndo(state, "a0", "complete", 100000);
+  getSet(state, "a0").done = true;
+  state.active.guided = {
+    setId: "a1",
+    phase: "entry",
+    undo: state.active.guided.undo,
+  };
+  skipCurrentSet(state, 110000);
+  state.active.guided.draft = { setId: "a2", values: { reps: "" } };
+  const reloaded = validateBackup(JSON.parse(JSON.stringify(state)));
+  assert.equal(undoWorkoutAction(reloaded, 200000), true);
+  assert.equal(getSet(reloaded, "a0").done, true);
+  assert.equal(getSet(reloaded, "a1").skipped, undefined);
+  assert.equal(currentStep(reloaded.active).set.id, "a1");
+  assert.equal(undoWorkoutAction(reloaded, 210000), true);
+  assert.equal(getSet(reloaded, "a0").done, false);
+  assert.equal(currentStep(reloaded.active).set.id, "a0");
+  assert.deepEqual(reloaded.active.deferredInputs.a2, { reps: "" });
+});
+
+test("a saved correction is undoable as a result without re-opening its edit form", () => {
+  const state = session();
+  getSet(state, "a0").done = true;
+  getSet(state, "a0").effort = 2;
+  state.active.guided = {
+    setId: "a1",
+    phase: "entry",
+    draft: { setId: "a1", values: { reps: "8" } },
+  };
+  beginCorrection(state, "a0", 100000);
+  getSet(state, "a0").weight = 40;
+  delete getSet(state, "a0").effort;
+  assert.equal(saveCorrection(state, 110000), true);
+  assert.equal(getSet(state, "a0").effort, undefined);
+  assert.equal(state.active.undoActions.at(-1).label, "Correct set");
+  state.active.guided.draft = { setId: "a1", values: { reps: "9" } };
+  const reloaded = validateBackup(JSON.parse(JSON.stringify(state)));
+  assert.equal(undoWorkoutAction(reloaded, 200000), true);
+  assert.equal(getSet(reloaded, "a0").weight, 20);
+  assert.equal(getSet(reloaded, "a0").effort, 2);
+  assert.equal(getSet(reloaded, "a0").done, true);
+  assert.equal(reloaded.active.guided.editing, undefined);
+  assert.deepEqual(reloaded.active.deferredInputs.a1, { reps: "9" });
+  assert.deepEqual(reloaded.active.guided.draft.values, { reps: "9" });
+});
+
+test("undo history is bounded, rejects nested snapshots, and restores paused timer state", () => {
+  const state = session();
+  for (let i = 0; i < 25; i++) {
+    recordWorkoutAction(state, "Edit rest", 100000);
+    state.active.movements[0].rest++;
+  }
+  assert.equal(state.active.undoActions.length, 20);
+  assert.equal(state.active.undoActions[0].snapshot.movements[0].rest, 95);
+  assert.equal(state.active.undoActions[0].snapshot.undoActions, undefined);
+  assert.doesNotThrow(() => validateBackup(state));
+  for (const corrupt of [
+    (s) => s.active.undoActions.push(structuredClone(s.active.undoActions[0])),
+    (s) => (s.active.undoActions[0].snapshot.undoActions = []),
+    (s) => (s.active.undoActions[0].snapshot.guided.undo = {}),
+    (s) => (s.active.undoActions[0].remainingRestMs = -1),
+    (s) => (s.active.undoActions[0].set = { setId: "missing" }),
+  ]) {
+    const bad = structuredClone(state);
+    corrupt(bad);
+    assert.throws(() => validateBackup(bad), /Invalid workout records/);
+  }
+  state.timer = 190000;
+  pauseWorkout(state, 100000);
+  recordWorkoutAction(state, "Resume workout", 110000);
+  resumeWorkout(state, 120000);
+  const reloaded = validateBackup(JSON.parse(JSON.stringify(state)));
+  undoWorkoutAction(reloaded, 200000);
+  assert.equal(reloaded.timer, null);
+  assert.equal(reloaded.active.pausedAt, 200000);
+  assert.equal(reloaded.active.pausedRestMs, 90000);
+  assert.doesNotThrow(() => validateBackup(reloaded));
+});
+
+test("undo delete restores the deleted set while retaining later blank input on surviving sets", () => {
+  const state = session();
+  getSet(state, "a1").done = true;
+  state.active.guided.draft = { setId: "a0", values: { weight: "20." } };
+  deleteWorkoutSet(state, "a", "a0", 100000);
+  getSet(state, "a1").done = false;
+  guideSet(state, "a1");
+  state.active.guided.draft = { setId: "a1", values: { reps: "", weight: "" } };
+  getSet(state, "a1").weight = 0;
+  getSet(state, "a1").needsLoad = true;
+  state.active.movements[0].notes = "Seat 4";
+  state.active.movements[0].rest = 120;
+  state.active.notes = "Felt good";
+  const reloaded = validateBackup(JSON.parse(JSON.stringify(state)));
+  undoWorkoutAction(reloaded, 200000);
+  assert.equal(currentStep(reloaded.active).set.id, "a0");
+  assert.equal(getSet(reloaded, "a0").weight, 20);
+  assert.deepEqual(reloaded.active.guided.draft.values, { weight: "20." });
+  assert.equal(getSet(reloaded, "a1").weight, 0);
+  assert.equal(getSet(reloaded, "a1").needsLoad, true);
+  assert.equal(getSet(reloaded, "a1").done, false);
+  assert.deepEqual(reloaded.active.deferredInputs.a1, { reps: "", weight: "" });
+  assert.equal(reloaded.active.movements[0].notes, "Seat 4");
+  assert.equal(reloaded.active.movements[0].rest, 120);
+  assert.equal(reloaded.active.notes, "Felt good");
+  assert.doesNotThrow(() => validateBackup(reloaded));
+});
+
+test("undo reorder retains newer measurements and raw text for the original guide position", () => {
+  const state = session();
+  state.active.guided.draft = {
+    setId: "a0",
+    values: { weight: "20.", reps: "10" },
+  };
+  moveWorkoutSet(state, "a", "a2", "a0", 100000);
+  state.active.guided.draft = { setId: "a0", values: { reps: "" } };
+  getSet(state, "a0").weight = 35;
+  getSet(state, "a0").effort = 1;
+  getSet(state, "a0").effortKind = "RIR";
+  getSet(state, "a2").reps = 15;
+  state.active.deferredInputs = { a2: { reps: "15." } };
+  const reloaded = validateBackup(JSON.parse(JSON.stringify(state)));
+  undoWorkoutAction(reloaded, 200000);
+  assert.deepEqual(
+    reloaded.active.movements[0].sets.map((s) => s.id),
+    ["a0", "a1", "a2"],
+  );
+  assert.equal(currentStep(reloaded.active).set.id, "a0");
+  assert.equal(getSet(reloaded, "a0").weight, 35);
+  assert.equal(getSet(reloaded, "a0").effort, 1);
+  assert.equal(getSet(reloaded, "a0").effortKind, "RIR");
+  assert.deepEqual(reloaded.active.guided.draft.values, { reps: "" });
+  assert.equal(getSet(reloaded, "a2").reps, 15);
+  assert.deepEqual(reloaded.active.deferredInputs.a2, { reps: "15." });
+});
+
+test("undo added set retains later input on existing sets and removes the added set draft", () => {
+  const state = session();
+  const added = insertWorkoutSet(state, "a", "a0", "after", "working", 100000);
+  getSet(state, "a0").reps = 12;
+  getSet(state, "a0").type = "drop";
+  guideSet(state, added.id);
+  state.active.guided.draft = { setId: added.id, values: { weight: "" } };
+  state.active.deferredInputs = { a0: { reps: "12." } };
+  const reloaded = validateBackup(JSON.parse(JSON.stringify(state)));
+  undoWorkoutAction(reloaded, 200000);
+  assert.equal(getSet(reloaded, added.id), undefined);
+  assert.equal(getSet(reloaded, "a0").reps, 12);
+  assert.equal(getSet(reloaded, "a0").type, "working");
+  assert.deepEqual(reloaded.active.deferredInputs.a0, { reps: "12." });
+  assert.equal(reloaded.active.deferredInputs[added.id], undefined);
+  assert.equal(currentStep(reloaded.active).set.id, "a0");
+  assert.doesNotThrow(() => validateBackup(reloaded));
+});
+
+test("undo skipped exercise restores skipped flags without losing input in the next exercise", () => {
+  const state = session();
+  getSet(state, "a0").done = true;
+  state.active.guided = { setId: "a1", phase: "entry" };
+  recordWorkoutAction(state, "Skip exercise", 100000);
+  for (const set of state.active.movements[0].sets)
+    if (!set.done) set.skipped = true;
+  state.active.guided = {
+    setId: "b0",
+    phase: "entry",
+    draft: { setId: "b0", values: { weight: "35.", reps: "" } },
+  };
+  getSet(state, "b0").weight = 35;
+  const reloaded = validateBackup(JSON.parse(JSON.stringify(state)));
+  undoWorkoutAction(reloaded, 200000);
+  assert.equal(currentStep(reloaded.active).set.id, "a1");
+  assert.equal(getSet(reloaded, "a0").done, true);
+  assert.equal(getSet(reloaded, "a1").skipped, undefined);
+  assert.equal(getSet(reloaded, "a2").skipped, undefined);
+  assert.equal(getSet(reloaded, "b0").weight, 35);
+  assert.deepEqual(reloaded.active.deferredInputs.b0, {
+    weight: "35.",
+    reps: "",
+  });
+  assert.doesNotThrow(() => validateBackup(reloaded));
+});
+
+test("undo reordered exercises retains newer input and settings on shared exercises", () => {
+  const state = session();
+  recordWorkoutAction(state, "Reorder exercises", 100000);
+  state.active.movements.reverse();
+  guideSet(state, "b1");
+  state.active.guided.draft = { setId: "b1", values: { reps: "" } };
+  getSet(state, "b1").weight = 40;
+  state.active.movements[0].notes = "Wide handle";
+  state.active.movements[0].rest = 150;
+  const reloaded = validateBackup(JSON.parse(JSON.stringify(state)));
+  undoWorkoutAction(reloaded, 200000);
+  assert.deepEqual(
+    reloaded.active.movements.map((m) => m.id),
+    ["a", "b"],
+  );
+  assert.equal(currentStep(reloaded.active).set.id, "a0");
+  assert.equal(getSet(reloaded, "b1").weight, 40);
+  assert.deepEqual(reloaded.active.deferredInputs.b1, { reps: "" });
+  assert.equal(reloaded.active.movements[1].notes, "Wide handle");
+  assert.equal(reloaded.active.movements[1].rest, 150);
+  assert.doesNotThrow(() => validateBackup(reloaded));
 });

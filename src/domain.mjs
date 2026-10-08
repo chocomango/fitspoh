@@ -103,6 +103,17 @@ const day = (d) =>
   movements(d.movements) &&
   (d.notes === undefined || str(d.notes)) &&
   (d.restDay === undefined || typeof d.restDay === "boolean");
+const plan = (p) =>
+  p &&
+  id(p.id) &&
+  str(p.name) &&
+  (p.notes === undefined || str(p.notes)) &&
+  (p.templateId === undefined || id(p.templateId)) &&
+  Number.isInteger(p.next) &&
+  p.next >= 0 &&
+  Array.isArray(p.days) &&
+  p.days.every(day) &&
+  unique(p.days);
 const buddyPreferences = (p) =>
   p &&
   ["suggest", "adapt", "create"].includes(p.mode) &&
@@ -167,6 +178,11 @@ const guidedPosition = (g) =>
   (g.overview === undefined || typeof g.overview === "boolean") &&
   (g.draft === undefined ||
     (g.draft && id(g.draft.setId) && inputValues(g.draft.values)));
+const plainGuidedPosition = (g) =>
+  guidedPosition(g) &&
+  Object.keys(g).every((key) =>
+    ["phase", "setId", "lastSetId", "overview", "draft"].includes(key),
+  );
 const guidedSetReturn = (snapshot, w) =>
   snapshot &&
   typeof snapshot === "object" &&
@@ -175,14 +191,14 @@ const guidedSetReturn = (snapshot, w) =>
   set(snapshot.original) &&
   snapshot.original.id === snapshot.setId &&
   w.movements.some((m) => m.sets.some((s) => s.id === snapshot.setId)) &&
-  guidedPosition(snapshot.returnGuided) &&
+  plainGuidedPosition(snapshot.returnGuided) &&
   snapshot.returnGuided.editing === undefined &&
   snapshot.returnGuided.undo === undefined &&
   (snapshot.deferredValues === undefined ||
     inputValues(snapshot.deferredValues)) &&
   (snapshot.remainingRestMs === null ||
     numeric(snapshot.remainingRestMs, 1e15));
-const workout = (w) =>
+const workoutData = (w) =>
   w &&
   id(w.id) &&
   str(w.name) &&
@@ -221,6 +237,50 @@ const workout = (w) =>
           ["complete", "skip"].includes(w.guided.undo.kind) &&
           !w.guided.undo.original.done &&
           !w.guided.undo.original.skipped))));
+const actionSnapshot = (snapshot) =>
+  snapshot &&
+  typeof snapshot === "object" &&
+  !Array.isArray(snapshot) &&
+  Object.keys(snapshot).every((key) =>
+    [
+      "movements",
+      "notes",
+      "setOrder",
+      "guided",
+      "deferredInputs",
+      "pausedAt",
+      "pausedRestMs",
+    ].includes(key),
+  ) &&
+  workoutData({
+    id: "snapshot",
+    name: "",
+    started: "2026-01-01",
+    ...snapshot,
+  }) &&
+  (snapshot.guided === undefined || plainGuidedPosition(snapshot.guided));
+const workoutAction = (action) =>
+  action &&
+  typeof action === "object" &&
+  !Array.isArray(action) &&
+  Object.keys(action).every((key) =>
+    ["label", "snapshot", "remainingRestMs", "set"].includes(key),
+  ) &&
+  str(action.label) &&
+  action.label.length > 0 &&
+  action.label.length <= 100 &&
+  actionSnapshot(action.snapshot) &&
+  (action.remainingRestMs === null || numeric(action.remainingRestMs, 1e15)) &&
+  !(
+    action.snapshot.pausedAt !== undefined && action.remainingRestMs !== null
+  ) &&
+  (action.set === undefined || guidedSetReturn(action.set, action.snapshot));
+const workout = (w) =>
+  workoutData(w) &&
+  (w.undoActions === undefined ||
+    (Array.isArray(w.undoActions) &&
+      w.undoActions.length <= 20 &&
+      w.undoActions.every(workoutAction)));
 export function validateBackup(input, exerciseIds = []) {
   const s = input?.data ?? input;
   if (input?.format && input.format !== "fitspoh-backup")
@@ -235,35 +295,48 @@ export function validateBackup(input, exerciseIds = []) {
     "favourites",
   ])
     if (!Array.isArray(s[key])) throw Error(`Missing ${key} data.`);
-  if (
-    !s.plans.every(
-      (p) =>
-        p &&
-        id(p.id) &&
-        str(p.name) &&
-        (p.notes === undefined || str(p.notes)) &&
-        (p.templateId === undefined || id(p.templateId)) &&
-        Number.isInteger(p.next) &&
-        p.next >= 0 &&
-        Array.isArray(p.days) &&
-        p.days.every(
-          (d) =>
-            d &&
-            id(d.id) &&
-            str(d.name) &&
-            movements(d.movements) &&
-            (d.notes === undefined || str(d.notes)) &&
-            (d.restDay === undefined || typeof d.restDay === "boolean"),
-        ) &&
-        unique(p.days),
-    )
-  )
-    throw Error("Invalid workout plans.");
+  if (!s.plans.every(plan)) throw Error("Invalid workout plans.");
   if (
     !s.workouts.every(workout) ||
     (s.active !== null && (!workout(s.active) || s.active.finished))
   )
     throw Error("Invalid workout records.");
+  const completionUndo = s.completionUndo;
+  if (
+    completionUndo !== undefined &&
+    (!completionUndo ||
+      !id(completionUndo.workoutId) ||
+      !workout(completionUndo.workout) ||
+      completionUndo.workout.finished !== undefined ||
+      completionUndo.workout.id !== completionUndo.workoutId ||
+      !(
+        completionUndo.remainingRestMs === null ||
+        numeric(completionUndo.remainingRestMs, 1e15)
+      ) ||
+      (completionUndo.workout.pausedAt !== undefined &&
+        completionUndo.remainingRestMs !== null) ||
+      (completionUndo.plan !== undefined &&
+        (!completionUndo.plan ||
+          !Number.isInteger(completionUndo.plan.nextBefore) ||
+          completionUndo.plan.nextBefore < 0 ||
+          !plan(completionUndo.plan.after))))
+  )
+    throw Error("Invalid workout finish recovery.");
+  const removalUndo = s.workoutRemovalUndo;
+  if (
+    removalUndo !== undefined &&
+    (!removalUndo ||
+      !workout(removalUndo.workout) ||
+      typeof removalUndo.wasActive !== "boolean" ||
+      (removalUndo.wasActive && removalUndo.workout.finished !== undefined) ||
+      !(
+        removalUndo.remainingRestMs === null ||
+        numeric(removalUndo.remainingRestMs, 1e15)
+      ) ||
+      ((!removalUndo.wasActive || removalUndo.workout.pausedAt !== undefined) &&
+        removalUndo.remainingRestMs !== null))
+  )
+    throw Error("Invalid workout removal recovery.");
   if (
     !s.body.every(
       (e) =>
@@ -365,7 +438,14 @@ export function validateBackup(input, exerciseIds = []) {
       ...(s.active ? [s.active] : []),
       ...s.plans.flatMap((p) => p.days),
       ...(s.buddy?.draft?.days ?? []),
+      ...(completionUndo
+        ? [completionUndo.workout, ...(completionUndo.plan?.after.days ?? [])]
+        : []),
+      ...(removalUndo ? [removalUndo.workout] : []),
     ];
+    all.push(
+      ...all.flatMap((w) => (w.undoActions ?? []).map((a) => a.snapshot)),
+    );
     if (all.some((w) => w.movements.some((m) => !known.has(m.exerciseId))))
       throw Error("Backup references an unknown exercise.");
     if (s.buddy?.draft?.suggestions.some((x) => !known.has(x.exerciseId)))

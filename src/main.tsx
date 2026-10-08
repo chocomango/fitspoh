@@ -81,6 +81,7 @@ import "./style.css";
 import "./polish.css";
 import "./guided.css";
 import { GuidedWorkout } from "./GuidedWorkout";
+import { SetManager } from "./SetManager";
 import { setIssue } from "./workout-feedback.mjs";
 import { activePlan, switchWeightUnit } from "./mobile.mjs";
 import {
@@ -88,7 +89,21 @@ import {
   syncEditedInputs,
   guideSet,
   preserveGuidedDraft,
+  recordWorkoutAction,
+  undoWorkoutAction,
+  beginCorrection,
+  cancelCorrection,
+  insertWorkoutSet,
+  deleteWorkoutSet,
+  moveWorkoutSet,
+  restartWorkoutSet,
 } from "./workout-actions.mjs";
+import {
+  finishWorkoutState,
+  reopenWorkout,
+  removeWorkout,
+  restoreRemovedWorkout,
+} from "./workout-history.mjs";
 import { WorkoutBuddy } from "./WorkoutBuddy";
 import {
   defaultBuddyPreferences,
@@ -229,14 +244,86 @@ function App() {
   const update = (fn: (s: State) => void, undo = false) =>
     setState((old) => {
       if (blockedWrites.current || !storageSafe) return old;
-      if (undo) {
-        const w = historyEdit
-          ? old.workouts.find((w) => w.id === historyEdit)
-          : old.active;
+      if (undo && historyEdit) {
+        const w = old.workouts.find((w) => w.id === historyEdit);
         undoRef.current = w ? structuredClone(w) : null;
       }
       const next = structuredClone(old);
       fn(next);
+      if (old.active && next.active?.id === old.active.id) {
+        const structure = (w: Workout) =>
+          JSON.stringify(
+            w.movements.map((m) => [
+              m.id,
+              m.exerciseId,
+              m.sets.map((s) => [s.id, s.type]),
+            ]),
+          );
+        const skips = (w: Workout) =>
+          JSON.stringify(
+            w.movements.flatMap((m) => m.sets.map((s) => [s.id, !!s.skipped])),
+          );
+        const structureChanged =
+          structure(old.active) !== structure(next.active);
+        const skipsChanged = skips(old.active) !== skips(next.active);
+        const completions = (w: Workout) =>
+          JSON.stringify(
+            w.movements.flatMap((m) => m.sets.map((s) => [s.id, s.done])),
+          );
+        const completionChanged =
+          completions(old.active) !== completions(next.active);
+        const helpersRecorded =
+          JSON.stringify(old.active.undoActions) !==
+          JSON.stringify(next.active.undoActions);
+        if (
+          (structureChanged ||
+            skipsChanged ||
+            completionChanged ||
+            (undo && !historyEdit)) &&
+          !helpersRecorded
+        ) {
+          const actionState = {
+            ...next,
+            active: structuredClone(old.active),
+            timer: old.timer,
+          };
+          const previousIds = old.active.movements.map((m) => m.id);
+          const currentIds = next.active.movements.map((m) => m.id);
+          const previousSetIds = old.active.movements.flatMap((m) =>
+            m.sets.map((s) => s.id),
+          );
+          const currentSetIds = next.active.movements.flatMap((m) =>
+            m.sets.map((s) => s.id),
+          );
+          const label =
+            next.active.movements.length < old.active.movements.length
+              ? "Remove exercise"
+              : next.active.movements.length > old.active.movements.length
+                ? "Add exercise"
+                : previousIds.some((id) => !currentIds.includes(id))
+                  ? "Replace exercise"
+                  : JSON.stringify(previousIds) !== JSON.stringify(currentIds)
+                    ? "Reorder exercises"
+                    : currentSetIds.length < previousSetIds.length
+                      ? "Delete set"
+                      : currentSetIds.length > previousSetIds.length
+                        ? "Add set"
+                        : previousSetIds.some(
+                              (id) => !currentSetIds.includes(id),
+                            )
+                          ? "Copy previous sets"
+                          : JSON.stringify(previousSetIds) !==
+                              JSON.stringify(currentSetIds)
+                            ? "Reorder sets"
+                            : structureChanged
+                              ? "Change set type"
+                              : skipsChanged
+                                ? "Skip exercise"
+                                : "Change set completion";
+          if (recordWorkoutAction(actionState, label))
+            next.active.undoActions = actionState.active.undoActions;
+        }
+      }
       if (next.active) cleanWorkoutProgress(next.active);
       next.workouts.forEach(cleanWorkoutProgress);
       return next;
@@ -1145,25 +1232,34 @@ function App() {
                 className="icon-button"
                 aria-label="Replace exercise"
                 onClick={() => {
-                  openPicker((replacement) =>
-                    edit((ms) => {
-                      if (tab === "buddy") {
-                        const result = eligibility(
-                          replacement,
-                          state.buddy?.preferences ?? defaultBuddyPreferences(),
-                          state,
-                        );
-                        if (!result.ok) {
-                          notify(result.reason);
-                          return;
+                  openPicker((replacement) => {
+                    const replace = () =>
+                      edit((ms) => {
+                        if (tab === "buddy") {
+                          const result = eligibility(
+                            replacement,
+                            state.buddy?.preferences ??
+                              defaultBuddyPreferences(),
+                            state,
+                          );
+                          if (!result.ok) {
+                            notify(result.reason);
+                            return;
+                          }
                         }
-                      }
-                      ms[index] =
-                        tab === "buddy"
-                          ? starterMovement(replacement)
-                          : makeMovement(replacement);
-                    }),
-                  );
+                        ms[index] =
+                          tab === "buddy"
+                            ? starterMovement(replacement)
+                            : makeMovement(replacement);
+                      }, true);
+                    if (!isPlan && m.sets.some((set) => set.done))
+                      confirm(
+                        "Replace this exercise?",
+                        "Its logged sets will be removed from this workout. You can undo the replacement.",
+                        replace,
+                      );
+                    else replace();
+                  });
                   setMuscle(e.primaryMuscles[0] ?? "all");
                   setGymOnly(true);
                 }}
@@ -1253,8 +1349,10 @@ function App() {
                             id: s.id,
                             done: false,
                             skipped: false,
+                            effort: undefined,
+                            effortKind: undefined,
                           };
-                        });
+                        }, true);
                     }}
                   >
                     {isPlan
@@ -1275,13 +1373,17 @@ function App() {
                             : displayLoad(s.weight, state.settings.weight, e)
                         }
                         step={0.5}
-                        onClear={() =>
+                        onClear={() => {
+                          if (s.done)
+                            notify(
+                              "Set marked unfinished. Enter a weight and complete it again.",
+                            );
                           edit((ms) => {
                             ms[index].sets[i].weight = 0;
                             ms[index].sets[i].needsLoad = true;
                             ms[index].sets[i].done = false;
-                          })
-                        }
+                          });
+                        }}
                         onChange={(v) =>
                           edit((ms) => {
                             ms[index].sets[i].needsLoad = false;
@@ -1440,6 +1542,61 @@ function App() {
               );
             })}
           </div>
+          {!isPlan && !historyEdit && (
+            <SetManager
+              movement={m}
+              name={e.name}
+              selectedId={state.active?.guided?.setId}
+              disabled={
+                state.active?.pausedAt !== undefined ||
+                !!state.active?.guided?.editing
+              }
+              result={(set) =>
+                e.mode === "strength"
+                  ? set.needsLoad
+                    ? `Choose load · ${set.reps} reps`
+                    : `${fmt(displayLoad(set.weight, state.settings.weight, e))} ${loadUnit(state.settings.weight, e)} × ${set.reps} reps`
+                  : `${Math.floor(set.seconds / 60)}:${String(set.seconds % 60).padStart(2, "0")}`
+              }
+              visit={(set) =>
+                update((s) => {
+                  if (set.done) beginCorrection(s, set.id);
+                  else guideSet(s, set.id);
+                })
+              }
+              restart={(setId) => {
+                update((s) => {
+                  if (s.active?.guided?.editing?.setId === setId)
+                    cancelCorrection(s);
+                  restartWorkoutSet(s, setId);
+                });
+                notify(
+                  "Set reopened. Start here; your other completed sets stay saved.",
+                );
+              }}
+              insert={(setId, placement, type) => {
+                update((s) => {
+                  const set = insertWorkoutSet(s, m.id, setId, placement, type);
+                  if (set && type === "warmup") {
+                    set.weight = 0;
+                    set.needsLoad = e.mode === "strength";
+                  }
+                });
+                notify("Set inserted at the position you chose.");
+              }}
+              remove={(setId) => {
+                update((s) => {
+                  deleteWorkoutSet(s, m.id, setId);
+                });
+                notify("Set deleted. Use Undo to restore it.");
+              }}
+              move={(setId, beforeSetId) =>
+                update((s) => {
+                  moveWorkoutSet(s, m.id, setId, beforeSetId);
+                })
+              }
+            />
+          )}
           <div className="movement-options">
             <button
               className="ghost"
@@ -1447,7 +1604,16 @@ function App() {
                 edit((ms) => {
                   const prev = ms[index].sets.at(-1);
                   ms[index].sets.push(
-                    prev ? { ...prev, id: uid(), done: false } : setTemplate(),
+                    prev
+                      ? {
+                          ...prev,
+                          id: uid(),
+                          done: false,
+                          skipped: false,
+                          effort: undefined,
+                          effortKind: undefined,
+                        }
+                      : setTemplate(),
                   );
                 })
               }
@@ -1455,19 +1621,66 @@ function App() {
               <Plus size={15} />
               Add set
             </button>
+            {!isPlan && !historyEdit && (
+              <button
+                className="ghost"
+                disabled={
+                  state.active?.pausedAt !== undefined ||
+                  !!state.active?.guided?.editing
+                }
+                onClick={() => {
+                  update((s) => {
+                    const target = s.active?.movements.find(
+                      (movement) => movement.id === m.id,
+                    );
+                    const source = target?.sets.find(
+                      (set) => set.type !== "warmup",
+                    );
+                    const set = insertWorkoutSet(
+                      s,
+                      m.id,
+                      source?.id,
+                      source ? "before" : "after",
+                      "warmup",
+                    );
+                    if (set) {
+                      set.weight = 0;
+                      set.needsLoad = e.mode === "strength";
+                      guideSet(s, set.id);
+                    }
+                  });
+                  notify(
+                    "Warm-up added at the beginning of this exercise. Choose its load.",
+                  );
+                }}
+              >
+                <Plus size={15} />
+                Add warm-up
+              </button>
+            )}
             {!isPlan && last && (
               <button
                 className="ghost"
-                onClick={() =>
-                  edit((ms) => {
-                    ms[index].sets = last.sets.map((s) => ({
-                      ...s,
-                      id: uid(),
-                      done: false,
-                      skipped: false,
-                    }));
-                  })
-                }
+                onClick={() => {
+                  const copy = () =>
+                    edit((ms) => {
+                      ms[index].sets = last.sets.map((s) => ({
+                        ...s,
+                        id: uid(),
+                        done: false,
+                        skipped: false,
+                        effort: undefined,
+                        effortKind: undefined,
+                      }));
+                    }, true);
+                  if (m.sets.some((set) => set.done))
+                    confirm(
+                      "Replace these sets with your last workout?",
+                      "The current sets, including logged results, will be replaced. You can undo this change.",
+                      copy,
+                    );
+                  else copy();
+                }}
               >
                 <History size={14} />
                 Copy last workout
@@ -1604,28 +1817,79 @@ function App() {
           notify("Save or cancel your set correction before finishing.");
           return;
         }
+        const latest = stateRef.current.active;
+        if (!latest?.movements.some((m) => m.sets.some((set) => set.done))) {
+          notify("Complete at least one set before finishing.");
+          return;
+        }
+        if (
+          latest.movements.some((m) =>
+            m.sets.some(
+              (set) => set.done && setIssue(set, exercise(m.exerciseId)),
+            ),
+          )
+        ) {
+          notify("Correct your completed results before finishing.");
+          return;
+        }
         update((s) => {
-          const w = s.active;
-          if (!w || w.guided?.editing) return;
-          w.finished = new Date().toISOString();
-          delete w.pausedAt;
-          delete w.pausedRestMs;
-          delete w.deferredInputs;
-          delete w.guided;
-          s.workouts.push(w);
-          if (w.planId) {
-            const p = s.plans.find((p) => p.id === w.planId);
-            if (p) {
-              const i = p.days.findIndex((d) => d.id === w.dayId);
-              if (i >= 0) p.next = (i + 1) % Math.max(p.days.length, 1);
-            }
-          }
-          s.active = null;
-          s.timer = null;
+          finishWorkoutState(s);
         });
         go("history");
-        notify("Workout finished. Nice work showing up.");
+        notify(
+          "Workout saved. You can undo finishing or reopen it to continue.",
+        );
       },
+    );
+  };
+  const reopenSession = (workoutId: string) => {
+    if (stateRef.current.active) {
+      notify(
+        "Finish or discard your current workout before reopening this session. Both workouts have been kept.",
+      );
+      return;
+    }
+    if (!stateRef.current.workouts.some((w) => w.id === workoutId)) {
+      notify("This workout is already reopened or no longer in history.");
+      return;
+    }
+    update((s) => {
+      reopenWorkout(s, workoutId);
+    });
+    undoRef.current = null;
+    setHistoryEdit(null);
+    go("workout");
+    notify("Workout reopened. Your logged sets and unfinished work are kept.");
+  };
+  const restoreRemovedSession = () => {
+    const recovery = stateRef.current.workoutRemovalUndo;
+    if (!recovery) {
+      notify("There is no removed workout to restore.");
+      return;
+    }
+    if (recovery.wasActive && stateRef.current.active) {
+      notify(
+        "Finish or discard your current workout before restoring this session. Your discarded workout is still available.",
+      );
+      return;
+    }
+    if (
+      stateRef.current.active?.id === recovery.workout.id ||
+      stateRef.current.workouts.some((w) => w.id === recovery.workout.id)
+    ) {
+      notify("This workout is already restored. No duplicate was added.");
+      return;
+    }
+    update((s) => {
+      restoreRemovedWorkout(s);
+    });
+    undoRef.current = null;
+    setHistoryEdit(null);
+    go(recovery.wasActive ? "workout" : "history");
+    notify(
+      recovery.wasActive
+        ? "Discard undone. Your workout and unfinished entries are restored."
+        : "Deleted workout restored to history.",
     );
   };
   const acceptBuddyDraft = (
@@ -2024,6 +2288,36 @@ function App() {
           <div className="offline-banner">
             <WifiOff size={14} />
             Offline mode · your changes save on this device.
+          </div>
+        )}
+        {state.completionUndo &&
+          state.workouts.some(
+            (w) => w.id === state.completionUndo?.workoutId,
+          ) && (
+            <div className="workout-recovery-banner" role="status">
+              <span>Workout saved. Finished too soon?</span>
+              <button
+                className="secondary"
+                onClick={() => reopenSession(state.completionUndo!.workoutId)}
+              >
+                <RotateCcw size={16} />
+                Undo finish workout
+              </button>
+            </div>
+          )}
+        {state.workoutRemovalUndo && (
+          <div className="workout-recovery-banner" role="status">
+            <span>
+              {state.workoutRemovalUndo.wasActive
+                ? "Workout discarded. Changed your mind?"
+                : "Workout deleted. Changed your mind?"}
+            </span>
+            <button className="secondary" onClick={restoreRemovedSession}>
+              <RotateCcw size={16} />
+              {state.workoutRemovalUndo.wasActive
+                ? "Undo discard workout"
+                : "Undo delete workout"}
+            </button>
           </div>
         )}
         <div
@@ -2924,8 +3218,7 @@ function App() {
                       }
                       cancelEmpty={() => {
                         update((s) => {
-                          s.active = null;
-                          s.timer = null;
+                          if (s.active) removeWorkout(s, s.active.id);
                         });
                         go("dashboard");
                         notify("Empty workout discarded.");
@@ -2986,16 +3279,25 @@ function App() {
                         </div>
                         <div className="actions">
                           {historyEdit ? (
-                            <button
-                              className="primary"
-                              onClick={() => {
-                                setHistoryEdit(null);
-                                go("history");
-                              }}
-                            >
-                              <Check size={16} />
-                              Done editing
-                            </button>
+                            <>
+                              <button
+                                className="secondary"
+                                onClick={() => reopenSession(currentWorkout.id)}
+                              >
+                                <RotateCcw size={16} />
+                                Reopen workout
+                              </button>
+                              <button
+                                className="primary"
+                                onClick={() => {
+                                  setHistoryEdit(null);
+                                  go("history");
+                                }}
+                              >
+                                <Check size={16} />
+                                Done editing
+                              </button>
+                            </>
                           ) : (
                             <button className="primary" onClick={finishWorkout}>
                               <Check size={16} />
@@ -3018,16 +3320,14 @@ function App() {
                                 () => {
                                   if (historyEdit) {
                                     update((s) => {
-                                      s.workouts = s.workouts.filter(
-                                        (w) => w.id !== historyEdit,
-                                      );
+                                      removeWorkout(s, historyEdit);
                                     });
                                     setHistoryEdit(null);
                                     go("history");
                                   } else {
                                     update((s) => {
-                                      s.active = null;
-                                      s.timer = null;
+                                      if (s.active)
+                                        removeWorkout(s, s.active.id);
                                     });
                                   }
                                 },
@@ -3153,11 +3453,27 @@ function App() {
                           )}
                           <button
                             className="ghost"
+                            aria-label={
+                              historyEdit
+                                ? "Undo last history edit"
+                                : "Undo last action"
+                            }
                             disabled={
-                              !undoRef.current ||
-                              undoRef.current.id !== currentWorkout.id
+                              historyEdit
+                                ? !undoRef.current ||
+                                  undoRef.current.id !== currentWorkout.id
+                                : !currentWorkout.undoActions?.length ||
+                                  !!currentWorkout.guided?.editing ||
+                                  currentWorkout.pausedAt !== undefined
                             }
                             onClick={() => {
+                              if (!historyEdit) {
+                                update((s) => {
+                                  undoWorkoutAction(s);
+                                });
+                                notify("Last workout action undone.");
+                                return;
+                              }
                               if (
                                 undoRef.current &&
                                 undoRef.current.id === currentWorkout.id
@@ -3178,7 +3494,9 @@ function App() {
                             }}
                           >
                             <RotateCcw size={15} />
-                            Undo last set/removal
+                            {historyEdit
+                              ? "Undo last set/removal"
+                              : `Undo${currentWorkout.undoActions?.at(-1)?.label ? `: ${currentWorkout.undoActions.at(-1)!.label}` : " last action"}`}
                           </button>
                         </div>
                       </section>
@@ -3549,6 +3867,13 @@ function App() {
                           }}
                         >
                           View & edit <ArrowRight size={15} />
+                        </button>
+                        <button
+                          className="secondary full"
+                          onClick={() => reopenSession(w.id)}
+                        >
+                          <RotateCcw size={15} />
+                          Reopen workout
                         </button>
                       </article>
                     ))}

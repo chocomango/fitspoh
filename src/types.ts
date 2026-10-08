@@ -86,6 +86,22 @@ export type GuidedProgress = GuidedPosition & {
   editing?: GuidedSetReturn;
   undo?: GuidedSetReturn & { kind: "complete" | "skip" };
 };
+export type WorkoutActionSnapshot = {
+  movements: Movement[];
+  notes: string;
+  setOrder?: "exercise" | "circuit";
+  guided?: GuidedPosition;
+  deferredInputs?: Workout["deferredInputs"];
+  pausedAt?: number;
+  pausedRestMs?: number;
+};
+export type WorkoutAction = {
+  label: string;
+  snapshot: WorkoutActionSnapshot;
+  remainingRestMs: number | null;
+  /** Set actions restore only that result, keeping unrelated input. */
+  set?: GuidedSetReturn;
+};
 export type Workout = {
   id: string;
   name: string;
@@ -105,6 +121,7 @@ export type Workout = {
     >
   >;
   guided?: GuidedProgress;
+  undoActions?: WorkoutAction[];
 };
 export type BodyEntry = {
   id: string;
@@ -176,5 +193,16 @@ export type State = {
     weightIncrements?: Record<string, number>;
   };
   timer: number | null;
+  completionUndo?: {
+    workoutId: string;
+    workout: Workout;
+    remainingRestMs: number | null;
+    plan?: { nextBefore: number; after: Plan };
+  };
+  workoutRemovalUndo?: {
+    workout: Workout;
+    wasActive: boolean;
+    remainingRestMs: number | null;
+  };
   buddy?: { preferences: BuddyPreferences; draft?: BuddyDraft };
 };

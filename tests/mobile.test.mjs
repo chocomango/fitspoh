@@ -12,6 +12,8 @@ import {
   rememberSetUndo,
   beginCorrection,
   cancelCorrection,
+  recordWorkoutAction,
+  undoWorkoutAction,
 } from "../src/workout-actions.mjs";
 
 const state = () => ({
@@ -207,4 +209,51 @@ test("switching units converts saved return drafts and original correction input
   assert.equal(s.active.guided.draft.values.reps, "");
   assert.equal(s.active.movements[0].sets[0].weight, 20);
   assert.equal(s.active.deferredInputs.a0.weight, "44.09");
+});
+
+test("unit changes convert structural and set undo drafts including finished workout recovery", () => {
+  const s = state();
+  s.active = {
+    id: "work",
+    name: "Workout",
+    started: "2026-10-06T01:00:00Z",
+    notes: "",
+    movements: [movement("a")],
+    guided: {
+      setId: "a0",
+      phase: "entry",
+      draft: { setId: "a0", values: { weight: "20", reps: "" } },
+    },
+    deferredInputs: { a1: { weight: "" } },
+  };
+  recordWorkoutAction(s, "Edit rest", 100000);
+  s.active.movements[0].rest = 120;
+  rememberSetUndo(s, "a0", "complete", 110000);
+  s.active.movements[0].sets[0].done = true;
+  s.active.guided = { setId: "a1", phase: "entry", undo: s.active.guided.undo };
+  s.completionUndo = {
+    workoutId: "work",
+    workout: structuredClone(s.active),
+    remainingRestMs: null,
+  };
+  switchWeightUnit(s, "lb", (id) => ({ id, loadKind: "plates" }));
+  assert.equal(
+    s.active.undoActions[0].snapshot.guided.draft.values.weight,
+    "44.09",
+  );
+  assert.equal(
+    s.active.undoActions[1].set.returnGuided.draft.values.weight,
+    "44.09",
+  );
+  assert.equal(
+    s.completionUndo.workout.undoActions[0].snapshot.guided.draft.values.weight,
+    "44.09",
+  );
+  assert.equal(s.active.undoActions[0].snapshot.deferredInputs.a1.weight, "");
+  const reloaded = validateBackup(JSON.parse(JSON.stringify(s)));
+  undoWorkoutAction(reloaded, 200000);
+  assert.equal(reloaded.active.guided.draft.values.weight, "44.09");
+  undoWorkoutAction(reloaded, 210000);
+  assert.equal(reloaded.active.guided.draft.values.weight, "44.09");
+  assert.equal(reloaded.active.movements[0].sets[0].weight, 20);
 });

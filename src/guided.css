@@ -130,6 +130,9 @@
   gap: 6px;
   margin-bottom: 12px;
 }
+.guided-workout .section-title.has-undo {
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+}
 .guided-workout .section-title strong {
   max-width: 100%;
   overflow-wrap: anywhere;
@@ -379,4 +382,118 @@
 
 [data-theme="sumikko"] .entry-error {
   color: #963f46;
+}
+
+.set-manager {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  margin: 16px 0;
+  padding: 14px;
+}
+.set-manager > summary {
+  cursor: pointer;
+  min-height: 32px;
+}
+.managed-set {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px;
+  margin: 10px 0;
+  background: var(--panel);
+}
+.managed-set.selected {
+  border-color: var(--lime);
+}
+.managed-set.dragging {
+  opacity: 0.55;
+}
+.managed-set.drop-target {
+  border-top: 3px solid var(--lime);
+}
+.managed-set.drop-after {
+  border-bottom: 3px solid var(--lime);
+}
+.set-drop-end {
+  padding: 16px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  text-align: center;
+}
+.set-drop-end.drop-target {
+  border-color: var(--lime);
+}
+.managed-set-head {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
+  align-items: center;
+  gap: 4px;
+}
+.managed-set-head button {
+  min-width: 0;
+  min-height: 44px;
+  margin: 0;
+  padding: 6px;
+}
+.managed-set-result {
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.managed-set-result strong,
+.managed-set-result span {
+  display: block;
+}
+.managed-set-result span {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.set-drag-handle {
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+  font-size: 24px;
+}
+.set-drag-handle:active {
+  cursor: grabbing;
+}
+.managed-set-actions {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.set-manager .managed-set-actions details {
+  flex: 1 1 140px;
+  padding: 6px;
+  margin: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.managed-set-actions summary {
+  min-height: 32px;
+  cursor: pointer;
+}
+.managed-set-actions button {
+  min-height: 44px;
+  margin: 0;
+}
+.managed-set-actions details button {
+  margin: 4px 4px 0 0;
+}
+.workout-recovery-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--lime);
+  border-radius: 14px;
+  padding: 12px;
+  margin-bottom: 16px;
+  background: var(--panel);
+}
+.workout-recovery-banner button {
+  min-height: 44px;
 }

@@ -28,44 +28,58 @@ export function saveIncrement(state, exercise, value) {
 }
 export function switchWeightUnit(state, unit, lookup) {
   state.settings.weight = unit;
-  const workout = state.active;
-  if (!workout) return;
-  const entries = Object.entries(workout.deferredInputs ?? {});
-  if (workout.guided?.draft)
-    entries.push([workout.guided.draft.setId, workout.guided.draft.values]);
-  for (const snapshot of [workout.guided?.editing, workout.guided?.undo]) {
-    if (!snapshot) continue;
-    if (snapshot.returnGuided.draft) {
-      const draft = snapshot.returnGuided.draft;
-      entries.push([
-        draft.setId,
-        draft.values,
-        draft.setId === snapshot.setId ? snapshot.original.weight : undefined,
-      ]);
+  function convertInputs(workout, actionSet) {
+    const entries = Object.entries(workout.deferredInputs ?? {});
+    if (workout.guided?.draft)
+      entries.push([workout.guided.draft.setId, workout.guided.draft.values]);
+    for (const snapshot of [
+      workout.guided?.editing,
+      workout.guided?.undo,
+      actionSet,
+    ]) {
+      if (!snapshot) continue;
+      if (snapshot.returnGuided.draft) {
+        const draft = snapshot.returnGuided.draft;
+        entries.push([
+          draft.setId,
+          draft.values,
+          draft.setId === snapshot.setId ? snapshot.original.weight : undefined,
+        ]);
+      }
+      if (snapshot.deferredValues)
+        entries.push([
+          snapshot.setId,
+          snapshot.deferredValues,
+          snapshot.original.weight,
+        ]);
     }
-    if (snapshot.deferredValues)
-      entries.push([
-        snapshot.setId,
-        snapshot.deferredValues,
-        snapshot.original.weight,
-      ]);
-  }
-  for (const [setId, values, originalWeight] of entries) {
-    if (values.weight === undefined || values.weight === "") continue;
-    const movement = workout.movements.find((m) =>
-      m.sets.some((t) => t.id === setId),
-    );
-    const set = movement?.sets.find((t) => t.id === setId);
-    if (set)
-      values.weight = String(
-        Number(
-          displayLoad(
-            originalWeight ?? set.weight,
-            unit,
-            lookup(movement.exerciseId),
-          ).toFixed(2),
-        ),
+    for (const [setId, values, originalWeight] of entries) {
+      if (values.weight === undefined || values.weight === "") continue;
+      const movement = workout.movements.find((m) =>
+        m.sets.some((t) => t.id === setId),
       );
+      const set = movement?.sets.find((t) => t.id === setId);
+      if (set)
+        values.weight = String(
+          Number(
+            displayLoad(
+              originalWeight ?? set.weight,
+              unit,
+              lookup(movement.exerciseId),
+            ).toFixed(2),
+          ),
+        );
+    }
+  }
+  for (const workout of [
+    state.active,
+    state.completionUndo?.workout,
+    state.workoutRemovalUndo?.workout,
+  ]) {
+    if (!workout) continue;
+    convertInputs(workout);
+    for (const action of workout.undoActions ?? [])
+      convertInputs(action.snapshot, action.set);
   }
 }
 export function postpone(workout, movementId) {
