@@ -481,3 +481,70 @@ test("Buddy's explicit last-load action preserves unitless stack settings when u
     page.getByLabel("Weight (stack setting)", { exact: true }),
   ).toHaveValue("30");
 });
+
+test("gym inventory leads to a muscle-specific surprise routine that survives reload and starts", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 440, height: 763 });
+  await seed(page);
+  const initial = await read(page);
+  initial.equipment.forEach((e: any) => {
+    e.confirmed = false;
+  });
+  await restoreJournal(page, initial);
+  await page.goto("#equipment");
+  for (const id of ["dumbbell", "bench"]) {
+    const name = initial.equipment.find((e: any) => e.id === id).name;
+    await page
+      .locator(".equipment-card")
+      .filter({ has: page.getByRole("heading", { name, exact: true }) })
+      .getByLabel("I have seen this equipment")
+      .check();
+  }
+  await page
+    .getByRole("button", { name: "Build today's workout", exact: true })
+    .click();
+  await page
+    .getByLabel("Workout focus", { exact: true })
+    .selectOption("muscles");
+  await expect(
+    page.getByRole("button", { name: "Surprise me", exact: true }),
+  ).toBeDisabled();
+  await page
+    .getByRole("group", { name: "Muscle groups for today" })
+    .getByLabel("chest", { exact: true })
+    .check();
+  await page
+    .getByRole("group", { name: "Muscle groups for today" })
+    .getByLabel("triceps", { exact: true })
+    .check();
+  await page.getByRole("button", { name: "Surprise me", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Your draft is ready for review" }),
+  ).toBeVisible();
+  await waitForDraft(page);
+  await expect(page.locator(".storage-status")).toContainText(
+    "Saved on this device",
+  );
+  const generated = await read(page);
+  expect(generated.buddy.preferences.selectedMuscles).toEqual([
+    "chest",
+    "triceps",
+  ]);
+  expect(generated.buddy.draft.name).toContain("Surprise");
+  await page.reload();
+  await expect(page.getByLabel("Draft name")).toHaveValue(
+    generated.buddy.draft.name,
+  );
+  await page
+    .getByRole("button", { name: "Surprise me again", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Start this routine", exact: true }),
+  ).toBeEnabled();
+  await page
+    .getByRole("button", { name: "Start this routine", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Start set", exact: true }).click();
+  await expect(page.getByLabel("Reps", { exact: true })).toBeVisible();
+});

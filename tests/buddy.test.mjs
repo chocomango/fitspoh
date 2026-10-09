@@ -356,3 +356,94 @@ test("adapting can retain an untagged saved exercise but explains uncheckable re
   corrupt.plans[0].days[0].movements[0].sets[0].needsLoad = true;
   assert.throws(() => validateBackup(corrupt), /Invalid workout plans/);
 });
+
+test("muscle routines cover selected primary muscles, respect restrictions and round trip", () => {
+  const s = baseline();
+  const p = {
+    ...prefs(),
+    focus: "muscles",
+    selectedMuscles: ["chest", "triceps"],
+  };
+  for (const surprise of [false, true]) {
+    const draft = buildDraft(s, exercises, p, { surprise, random: () => 0.5 });
+    const moves = draft.days[0].movements;
+    assert.ok(moves.length > 0);
+    assert.equal(new Set(moves.map((m) => m.exerciseId)).size, moves.length);
+    for (const muscle of p.selectedMuscles)
+      assert.ok(
+        moves.some((m) => lookup(m.exerciseId).primaryMuscles.includes(muscle)),
+      );
+    assert.ok(
+      moves.every((m) =>
+        lookup(m.exerciseId).primaryMuscles.some((muscle) =>
+          p.selectedMuscles.includes(muscle),
+        ),
+      ),
+    );
+    assert.ok(estimateMinutes(draft.days[0], lookup) <= p.minutes);
+    assert.ok(
+      moves.every((m) => m.sets.every((set) => !set.done && set.weight === 0)),
+    );
+    const restored = { ...s, buddy: { preferences: p, draft } };
+    assert.deepEqual(validateBackup(restored), restored);
+  }
+  const empty = buildDraft(s, exercises, { ...p, selectedMuscles: [] });
+  assert.equal(empty.days.length, 0);
+  assert.match(empty.warnings[0], /Choose at least one/);
+  const corrupt = {
+    ...s,
+    buddy: { preferences: { ...p, selectedMuscles: ["not a muscle"] } },
+  };
+  assert.throws(() => validateBackup(corrupt), /Buddy/);
+});
+
+test("surprise routines vary eligible choices without changing existing records or inventing equipment", () => {
+  const s = baseline(),
+    p = { ...prefs(), focus: "upper", minutes: 60 };
+  s.buddy = { preferences: p, draft: buildDraft(s, exercises, p) };
+  const before = structuredClone(s);
+  const previous = s.buddy.draft.days[0].movements.map((m) => m.exerciseId);
+  const next = buildDraft(s, exercises, p, {
+    surprise: true,
+    random: () => 0.9,
+  });
+  assert.ok(
+    next.days[0].movements.some((m) => !previous.includes(m.exerciseId)),
+  );
+  assert.deepEqual(s, before);
+  const restricted = {
+    ...p,
+    experience: "beginner",
+    avoidOverhead: true,
+    avoidGrip: true,
+    equipmentIds: [],
+    exclusions: ["Pushups"],
+  };
+  const draft = buildDraft(s, exercises, restricted, {
+    surprise: true,
+    random: () => 0,
+  });
+  draft.days[0].movements.forEach((m) => {
+    assert.ok(eligibility(lookup(m.exerciseId), restricted, s).ok);
+    assert.notEqual(m.exerciseId, "Pushups");
+    assert.ok(lookup(m.exerciseId).required.every((id) => id === "body only"));
+  });
+});
+
+test("limited muscle routines explain missing coverage and unavailable variety", () => {
+  const s = baseline(),
+    p = {
+      ...prefs(),
+      focus: "muscles",
+      selectedMuscles: ["biceps", "calves"],
+      equipmentIds: [],
+    };
+  const draft = buildDraft(s, exercises, p, { surprise: true });
+  assert.ok(draft.warnings.some((w) => /biceps: not covered/.test(w)));
+  const onlyPushups = exercises.filter((e) => e.id === "Pushups");
+  const chest = { ...p, selectedMuscles: ["chest"] };
+  s.buddy = { preferences: chest, draft: buildDraft(s, onlyPushups, chest) };
+  const repeated = buildDraft(s, onlyPushups, chest, { surprise: true });
+  assert.ok(repeated.warnings.some((w) => /limited variety/.test(w)));
+  assert.equal(repeated.days[0].movements.length, 1);
+});

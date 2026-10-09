@@ -17,7 +17,7 @@ import {
   starterMovement,
   tagsFor,
 } from "./buddy.mjs";
-import { displayLoad, loadUnit } from "./domain.mjs";
+import { BUDDY_MUSCLES, displayLoad, loadUnit } from "./domain.mjs";
 import "./buddy.css";
 
 type Props = {
@@ -74,8 +74,15 @@ export function WorkoutBuddy({
     update((s) => {
       if (s.buddy?.draft) fn(s.buddy.draft);
     });
-  const generate = () => {
-    const result = buildDraft(state, exercises, prefs);
+  const muscleChoiceMissing =
+    prefs.mode === "create" &&
+    prefs.output === "routine" &&
+    prefs.focus === "muscles" &&
+    !prefs.selectedMuscles?.length;
+  const canSurprise = prefs.mode === "create" && prefs.output === "routine";
+  const generate = (surprise = false) => {
+    if (muscleChoiceMissing) return;
+    const result = buildDraft(state, exercises, prefs, { surprise });
     update((s) => {
       s.buddy = { preferences: { ...prefs }, draft: result };
     });
@@ -243,6 +250,15 @@ export function WorkoutBuddy({
         <>
           <div className="buddy-bubble buddy-response">
             <h3>Your draft is ready for review</h3>
+            {canSurprise && (
+              <button
+                className="secondary"
+                disabled={muscleChoiceMissing}
+                onClick={() => generate(true)}
+              >
+                Surprise me again
+              </button>
+            )}
             <button className="secondary" onClick={() => setReview(false)}>
               Change choices
             </button>
@@ -621,13 +637,52 @@ export function WorkoutBuddy({
                         "push",
                         "pull",
                         "legs",
+                        "muscles",
                       ].map((f) => (
-                        <option key={f}>{f}</option>
+                        <option key={f} value={f}>
+                          {f === "muscles" ? "Choose muscle groups" : f}
+                        </option>
                       ))}
                     </select>
                   </label>
                 )}
               </>
+            )}
+            {canSurprise && prefs.focus === "muscles" && (
+              <fieldset className="buddy-muscles">
+                <legend>Muscle groups for today</legend>
+                <p>
+                  Choose one or more. Exercises will target these as primary
+                  muscles.
+                </p>
+                <div className="buddy-checks">
+                  {BUDDY_MUSCLES.map((muscle) => (
+                    <label key={muscle}>
+                      <input
+                        type="checkbox"
+                        checked={
+                          prefs.selectedMuscles?.includes(muscle) ?? false
+                        }
+                        onChange={(e) =>
+                          preferences({
+                            selectedMuscles: e.target.checked
+                              ? [...(prefs.selectedMuscles ?? []), muscle]
+                              : prefs.selectedMuscles?.filter(
+                                  (m) => m !== muscle,
+                                ),
+                          })
+                        }
+                      />
+                      {muscle}
+                    </label>
+                  ))}
+                </div>
+                {muscleChoiceMissing && (
+                  <p className="hint">
+                    Choose at least one muscle group to generate a routine.
+                  </p>
+                )}
+              </fieldset>
             )}
             <p>Experience level</p>
             {buttonChoices(
@@ -767,11 +822,31 @@ export function WorkoutBuddy({
               </div>
             </details>
           </div>
-          <button className="primary buddy-generate" onClick={generate}>
+          <button
+            className="primary buddy-generate"
+            disabled={muscleChoiceMissing}
+            onClick={() => generate()}
+          >
             {prefs.mode === "suggest"
               ? "Confirm choices & suggest"
               : "Confirm choices & draft"}
           </button>
+          {canSurprise && (
+            <>
+              <button
+                className="secondary buddy-generate"
+                disabled={muscleChoiceMissing}
+                onClick={() => generate(true)}
+              >
+                Surprise me
+              </button>
+              <p className="hint">
+                Mix familiar exercises with new choices using your selected
+                equipment, workout focus and time budget. Review the draft
+                before starting.
+              </p>
+            </>
+          )}
           {draft && (
             <button className="secondary" onClick={() => setReview(true)}>
               Return to latest draft

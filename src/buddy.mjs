@@ -322,7 +322,8 @@ const splits = {
 };
 
 /** @param {import('./types').State} state @param {import('./types').Exercise[]} exercises @param {import('./types').BuddyPreferences} p @returns {import('./types').BuddyDraft} */
-export function buildDraft(state, exercises, p) {
+export function buildDraft(state, exercises, p, options = {}) {
+  const { surprise = false, random = Math.random } = options;
   const lookup = (id) => exercises.find((e) => e.id === id);
   const draft = {
     id: uid(),
@@ -429,35 +430,87 @@ export function buildDraft(state, exercises, p) {
     return draft;
   }
   const focuses = p.output === "plan" ? splits[p.frequency] : [p.focus];
+  const selectedMuscles = p.selectedMuscles ?? [];
+  if (
+    p.output === "routine" &&
+    p.focus === "muscles" &&
+    !selectedMuscles.length
+  ) {
+    draft.warnings.push(
+      "Choose at least one muscle group for today's routine.",
+    );
+    return draft;
+  }
+  const previousIds = new Set(
+    state.buddy?.draft?.days.flatMap((d) =>
+      d.movements.map((m) => m.exerciseId),
+    ) ?? [],
+  );
   const usedByFamily = {};
   const desired = p.minutes === 20 ? 3 : p.minutes === 40 ? 5 : 6;
   focuses.forEach((focus, index) => {
     const day = {
       id: uid(),
-      name: `${focus.replace("-", " ")} ${index + 1}`,
+      name:
+        focus === "muscles"
+          ? `${selectedMuscles.join(" + ")} workout`
+          : `${focus.replace("-", " ")} ${index + 1}`,
       movements: [],
       notes:
         "Draft targets are editable. Take rest between sessions whenever needed; there is no calendar catch-up.",
     };
-    for (const family of templates[focus]) {
+    const slots =
+      focus === "muscles"
+        ? Array.from({ length: desired }, (_, i) => ({
+            muscle: selectedMuscles[i % selectedMuscles.length],
+          }))
+        : templates[focus].map((family) => ({ family }));
+    for (const slot of slots) {
+      const { family, muscle } = slot;
       if (day.movements.length >= desired) break;
       const candidates = exercises.filter(
         (e) =>
-          tagsFor(e).pattern === family &&
+          (muscle
+            ? e.primaryMuscles.includes(muscle)
+            : tagsFor(e).pattern === family) &&
           eligibility(e, p, state).ok &&
           !day.movements.some((m) => m.exerciseId === e.id),
       );
-      candidates.sort(
+      const unusedPatterns = muscle
+        ? candidates.filter(
+            (e) =>
+              !day.movements.some(
+                (m) =>
+                  tagsFor(lookup(m.exerciseId)).pattern === tagsFor(e).pattern,
+              ),
+          )
+        : [];
+      const preferred = unusedPatterns.length ? unusedPatterns : candidates;
+      preferred.sort(
         (a, b) =>
           rank(b, state) - rank(a, state) ||
           (usedByFamily[a.id] ?? 0) - (usedByFamily[b.id] ?? 0) ||
           a.name.localeCompare(b.name),
       );
-      const e = candidates[0];
-      if (!e) {
-        draft.warnings.push(
-          `${day.name}: no eligible ${family} exercise. Confirm equipment or adjust restrictions; no substitute was assumed.`,
+      let e = preferred[0];
+      if (surprise && preferred.length) {
+        // Prefer a different option from the previous draft, then mix familiar and new choices.
+        const different = preferred.filter((c) => !previousIds.has(c.id));
+        let pool = different.length ? different : preferred;
+        const familiarPool = pool.filter(
+          (c) => familiar(state, c.id) || state.favourites.includes(c.id),
         );
+        const novelPool = pool.filter((c) => !familiar(state, c.id));
+        if (day.movements.length % 2 === 0 && familiarPool.length)
+          pool = familiarPool;
+        else if (novelPool.length) pool = novelPool;
+        e = pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))];
+      }
+      if (!e) {
+        if (!muscle)
+          draft.warnings.push(
+            `${day.name}: no eligible ${family} exercise. Confirm equipment or adjust restrictions; no substitute was assumed.`,
+          );
         continue;
       }
       usedByFamily[e.id] = (usedByFamily[e.id] ?? 0) + 1;
@@ -466,7 +519,7 @@ export function buildDraft(state, exercises, p) {
       m.optional = day.movements.length >= 3;
       day.movements.push(m);
       draft.reasons[m.id] =
-        `${family} slot for ${focus}. ${familiar(state, e.id) ? "Familiar from your history." : "New to your recorded workouts."} ${eligibility(e, p, state).reason}`;
+        `${muscle ? `Targets ${muscle}` : `${family} slot for ${focus}`}. ${surprise ? "Surprise pick for variety. " : ""} ${familiar(state, e.id) ? "Familiar from your history." : "New to your recorded workouts."} ${eligibility(e, p, state).reason}`;
     }
     while (
       estimateMinutes(day, lookup) > p.minutes &&
@@ -486,12 +539,32 @@ export function buildDraft(state, exercises, p) {
       draft.warnings.push(
         `${day.name}: estimated duration exceeds the budget. Review and edit the draft.`,
       );
+    if (focus === "muscles") {
+      for (const muscle of selectedMuscles) {
+        if (
+          !day.movements.some((m) =>
+            lookup(m.exerciseId)?.primaryMuscles.includes(muscle),
+          )
+        )
+          draft.warnings.push(
+            `${muscle}: not covered in this draft. Try more time, confirm equipment, or change your selections.`,
+          );
+      }
+    }
+    if (
+      surprise &&
+      day.movements.length &&
+      day.movements.every((m) => previousIds.has(m.exerciseId))
+    )
+      draft.warnings.push(
+        "Your current choices leave limited variety; this draft repeats available exercises.",
+      );
     draft.days.push(day);
   });
   draft.name =
     p.output === "plan"
       ? `${p.frequency}-day Buddy plan`
-      : `${p.focus.replace("-", " ")} routine`;
+      : `${p.focus === "muscles" ? selectedMuscles.join(" + ") : p.focus.replace("-", " ")} routine${surprise ? " · Surprise" : ""}`;
   return draft;
 }
 

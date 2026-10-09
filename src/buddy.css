@@ -121,3 +121,18 @@
     font-size: 12px;
   }
 }
+
+.buddy-muscles {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  margin: 16px 0;
+  min-width: 0;
+}
+.buddy-muscles legend {
+  padding: 0 6px;
+  font-weight: 600;
+}
+.buddy-muscles .buddy-checks {
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+}

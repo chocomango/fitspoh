@@ -29,6 +29,12 @@ npm run dev
 
 For the production preview, run `npm run build` then `npm run preview` and open http://127.0.0.1:4173/fitspoh/ . This preview deliberately uses a repository subpath to verify GitHub Pages compatibility.
 
+## A workout from your gym inventory
+
+In **My gym**, tick **I have seen this equipment** as you walk around, and mark unusable items **Temporarily unavailable**. Choose **Build today's workout** to open Buddy with your confirmed equipment. For a single routine, set **Workout focus → Choose muscle groups** and select one or more predefined muscles. Choose your experience and time budget, then **Confirm choices & draft** or **Surprise me**.
+
+**Surprise me** varies eligible exercises, mixing familiar or favourite choices with new options where available. **Surprise me again** creates another editable draft; neither button starts a workout or changes a saved plan. All suggestions still follow your equipment, experience, exclusions and time choices. Review any missing-muscle or limited-variety warnings, then start or save the routine. Muscle choices and the latest draft survive reload and full backup restore. Generation works offline.
+
 ## Your first workout
 
 On a fresh journal, Home offers **Make a routine with Buddy**, manual plan creation, and gym-equipment setup. Configure only equipment you have confirmed, review Buddy's draft, save it, then start the workout from Home. Empty sessions provide **Add first exercise** and **Cancel empty workout** without creating history.

@@ -139,12 +139,13 @@ export type BuddyPreferences = {
   mode: "suggest" | "adapt" | "create";
   output: "routine" | "plan";
   experience: "beginner" | "intermediate" | "advanced";
-  focus: "full-body" | "upper" | "lower" | "push" | "pull" | "legs";
+  focus: "full-body" | "upper" | "lower" | "push" | "pull" | "legs" | "muscles";
   minutes: 20 | 40 | 60;
   frequency: 2 | 3 | 4 | 5;
   avoidOverhead: boolean;
   avoidGrip: boolean;
   exclusions: string[];
+  selectedMuscles?: string[];
   equipmentIds?: string[];
   exerciseId?: string;
   muscle?: string;

@@ -3935,6 +3935,22 @@ function App() {
                   available
                 </span>
               </div>
+              <button
+                className="primary"
+                onClick={() =>
+                  openBuddy({
+                    mode: "create",
+                    output: "routine",
+                    equipmentIds: undefined,
+                  })
+                }
+              >
+                Build today's workout
+              </button>
+              <p className="hint">
+                Confirm what you see in the gym, then choose today's muscles and
+                let Buddy draft a routine.
+              </p>
               <div className="equipment-search">
                 <label className="field">
                   Find equipment

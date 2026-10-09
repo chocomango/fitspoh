@@ -121,12 +121,28 @@ const plan = (p) =>
   Array.isArray(p.days) &&
   p.days.every(day) &&
   unique(p.days);
+export const BUDDY_MUSCLES = [
+  "abdominals",
+  "biceps",
+  "calves",
+  "chest",
+  "glutes",
+  "hamstrings",
+  "lats",
+  "lower back",
+  "middle back",
+  "quadriceps",
+  "shoulders",
+  "triceps",
+];
 const buddyPreferences = (p) =>
   p &&
   ["suggest", "adapt", "create"].includes(p.mode) &&
   ["routine", "plan"].includes(p.output) &&
   ["beginner", "intermediate", "advanced"].includes(p.experience) &&
-  ["full-body", "upper", "lower", "push", "pull", "legs"].includes(p.focus) &&
+  ["full-body", "upper", "lower", "push", "pull", "legs", "muscles"].includes(
+    p.focus,
+  ) &&
   [20, 40, 60].includes(p.minutes) &&
   [2, 3, 4, 5].includes(p.frequency) &&
   typeof p.avoidOverhead === "boolean" &&
@@ -138,6 +154,10 @@ const buddyPreferences = (p) =>
   ["exerciseId", "sourcePlanId", "sourceDayId", "sourceMovementId"].every(
     (key) => p[key] === undefined || id(p[key]),
   ) &&
+  (p.selectedMuscles === undefined ||
+    (Array.isArray(p.selectedMuscles) &&
+      p.selectedMuscles.every((m) => BUDDY_MUSCLES.includes(m)) &&
+      new Set(p.selectedMuscles).size === p.selectedMuscles.length)) &&
   (p.muscle === undefined || str(p.muscle)) &&
   (p.sourceScope === undefined || ["plan", "active"].includes(p.sourceScope));
 const buddyDraft = (d) =>

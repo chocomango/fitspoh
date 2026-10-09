@@ -146,3 +146,13 @@ The next CI timeout occurred in the same direct IndexedDB setup pattern in `work
 The remaining direct browser-test writes deliberately inject corrupted data or delay storage to test recovery behavior. No retries or timeout increases were added. The exact cause of the reported CI stall remains unconfirmed.
 
 Local validation: production build, lint, unit tests, and `git diff --check` passed. The full Chromium suite passed 74/74 in 2.4 minutes; the reported workout-flow warm-up scenario passed 10 additional consecutive runs. This follow-up changes browser fixtures and audit documentation only.
+
+## Gym inventory and today's muscle routine
+
+My gym now offers **Build today's workout**, which opens Buddy's single-routine setup with all confirmed, available equipment. Existing equipment confirmation and temporary-unavailability controls remain the source of inventory truth. Routine focus includes **Choose muscle groups**, with twelve predefined primary-muscle selections, multiple selection, and an explicit empty-selection prompt. Selected muscles alternate through generation slots so available choices can share the session budget; uncovered muscles produce a review warning. Different curated movement patterns are preferred where available.
+
+**Surprise me** and **Surprise me again** generate an editable draft using the same equipment, experience, exclusions and starter-load rules. They mix familiar/favourite and unfamiliar eligible choices where possible and prefer alternatives to the preceding draft. Limited options produce truthful repeat warnings. Regeneration does not mutate saved plans, history or the active workout. Muscle preferences and draft state validate and round-trip through journal backups; older backups without these preferences remain compatible.
+
+Unit coverage checks selected-primary-muscle coverage, no duplicates, time estimates, unset loads, backup validation, empty selections, variation, source-state preservation, restrictions and missing equipment. The new phone browser scenario confirms equipment, chooses chest and triceps, generates a surprise draft, reloads it, regenerates it and starts guided entry.
+
+Validation: 75 unit tests and the full 75-scenario Chromium suite passed (2.4 minutes). After compacting the muscle checkboxes, the production build, lint and all nine Buddy browser scenarios passed again. Visual checks at 320 px and 440 px confirmed no horizontal overflow; the wider phone uses two muscle columns. Physical iPhone Safari was not tested.
